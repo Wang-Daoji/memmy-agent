@@ -8,6 +8,7 @@ MEMORY_DIR="$ROOT_DIR/Memory"
 MIGRATIONS_DIR="$ROOT_DIR/Migrations"
 LOCAL_API_CONTRACTS_DIR="$ROOT_DIR/App/backend/local-api-contracts"
 RUNTIME_DIR="$DESKTOP_DIR/dist/runtime"
+DOCX_RENDERING_RUNTIME_DIR="$RUNTIME_DIR/memmy-agent/dist/extra-dependencies/docx-rendering"
 MIGRATIONS_STAGING_DIR="$DESKTOP_DIR/dist/Migrations"
 CLI_BIN_DIR="$RUNTIME_DIR/bin"
 DMG_HELPER_DIR="$DESKTOP_DIR/dist/dmg"
@@ -580,6 +581,33 @@ require_packaged_runtime_glob() {
   fi
 }
 
+verify_docx_rendering_bundle() {
+  local target_cpu="$1"
+  for candidate in "$DOCX_RENDERING_RUNTIME_DIR"/*; do
+    [ -e "$candidate" ] || continue
+    if [ "$(basename "$candidate")" != "darwin-$target_cpu" ]; then rm -rf "$candidate"; fi
+  done
+  local bundle_dir="$DOCX_RENDERING_RUNTIME_DIR/darwin-$target_cpu"
+  local manifest="$bundle_dir/DOCX-RENDERING-MANIFEST.json"
+
+  require_packaged_runtime_file "$manifest"
+  for binary in soffice pdfinfo pdftoppm; do
+    require_packaged_runtime_file "$bundle_dir/bin/$binary"
+    if [ ! -x "$bundle_dir/bin/$binary" ]; then
+      echo "DOCX rendering binary is not executable: $bundle_dir/bin/$binary" >&2
+      exit 1
+    fi
+  done
+
+  node - "$manifest" "darwin-$target_cpu" <<'NODE'
+const { readFileSync } = require("node:fs");
+const [manifestPath, expectedKey] = process.argv.slice(2);
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (`${manifest.platform}-${manifest.arch}` !== expectedKey) throw new Error(`DOCX rendering manifest target mismatch: ${manifestPath}`);
+if (JSON.stringify(manifest.binaries) !== JSON.stringify(["bin/soffice", "bin/pdfinfo", "bin/pdftoppm"])) throw new Error(`DOCX rendering manifest binary list mismatch: ${manifestPath}`);
+NODE
+}
+
 verify_mac_memory_native_artifacts() {
   local target_cpu="$1"
 
@@ -758,6 +786,7 @@ cp -R "$MEMORY_DIR/dist/src" "$RUNTIME_DIR/memory/dist/src"
 cp -R "$MEMORY_DIR/dist/viewer" "$RUNTIME_DIR/memory/dist/viewer"
 cp -R "$MEMORY_DIR/adapters" "$RUNTIME_DIR/memory/adapters"
 cp -R "$AGENT_DIR/dist" "$RUNTIME_DIR/memmy-agent/dist"
+verify_docx_rendering_bundle "$TARGET_CPU"
 package_step_start "Create Memory runtime manifest"
 create_memory_runtime_manifest "$RUNTIME_DIR/memory"
 package_step_start "Resolve Memory runtime lockfile"

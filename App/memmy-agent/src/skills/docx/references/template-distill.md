@@ -9,33 +9,32 @@ The retained DOCX stays unchanged and authoritative. Write one task-local
 
 ## Inputs
 
-Set `PYTHON_BIN` to the Python interpreter available in the Memmy runtime.
-Prepend that interpreter's directory to `PATH` because packaged helpers may
-spawn `python`. Set `SKILL_DIR` to this skill directory, `TMP_DIR` to a writable
-task-specific temporary directory, and `REFERENCE_DOCX` to the absolute
-retained reference path. Create `TMP_DIR` if needed.
+Set `SKILL_DIR` to this skill directory, `TMP_DIR` to a writable task-specific
+temporary directory, and `REFERENCE_DOCX` to the absolute retained reference
+path. Create `TMP_DIR` if needed. The packaged helpers are launched with the
+runtime's `node` executable.
 
 ## Inspect the reference
 
 1. Render every page and inspect it at 100% zoom:
 
    ```bash
-   "$PYTHON_BIN" "$SKILL_DIR/scripts/render_docx.py" "$REFERENCE_DOCX" \
+   node "$SKILL_DIR/scripts/render_docx.mjs" "$REFERENCE_DOCX" \
      --output_dir "$TMP_DIR/template-reference-render"
    ```
 
 2. Capture section and style evidence without modifying the reference:
 
    ```bash
-   "$PYTHON_BIN" "$SKILL_DIR/scripts/section_audit.py" "$REFERENCE_DOCX"
-   "$PYTHON_BIN" "$SKILL_DIR/scripts/style_lint.py" "$REFERENCE_DOCX" \
+   node "$SKILL_DIR/scripts/section_audit.mjs" "$REFERENCE_DOCX"
+   node "$SKILL_DIR/scripts/style_lint.mjs" "$REFERENCE_DOCX" \
      --json "$TMP_DIR/template-style-evidence.json"
    ```
 
    Run the packaged heading, image, field, footnote, and content-control audits
    too when the reference contains those features. Inventory content controls
    by tag with
-   `"$PYTHON_BIN" "$SKILL_DIR/scripts/content_controls.py" "$REFERENCE_DOCX" list --json`.
+   `node "$SKILL_DIR/scripts/content_controls.mjs" "$REFERENCE_DOCX" list --json`.
 
 3. Inspect the DOCX package read-only when rendered or high-level evidence is
    insufficient. Check the relevant styles, theme, numbering, section,

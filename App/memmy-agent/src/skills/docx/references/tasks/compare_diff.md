@@ -11,7 +11,7 @@ This is high-ROI for regression testing and reviewer confidence.
 ## Steps
 1. Run the helper:
    ```bash
-   python scripts/render_and_diff.py a.docx b.docx --outdir diff_out
+   node scripts/render_and_diff.mjs a.docx b.docx --outdir diff_out
    ```
 
 2. Inspect:

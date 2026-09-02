@@ -93,6 +93,28 @@ cp "$REPO_ROOT/package-lock.json" "$PAYLOAD_DIR/package-lock.json"
 cp "$REPO_ROOT/App/memmy-agent/package.json" "$PAYLOAD_DIR/App/memmy-agent/package.json"
 cp "$REPO_ROOT/App/memmy-agent/package-lock.json" "$PAYLOAD_DIR/App/memmy-agent/package-lock.json"
 cp -R "$REPO_ROOT/App/memmy-agent/dist" "$PAYLOAD_DIR/App/memmy-agent/dist"
+
+verify_docx_rendering_bundle() {
+  local target_key="$1"
+  local bundle_dir="$PAYLOAD_DIR/App/memmy-agent/dist/extra-dependencies/docx-rendering/$target_key"
+  local manifest="$bundle_dir/DOCX-RENDERING-MANIFEST.json"
+  [ -f "$manifest" ] || { echo "Missing DOCX rendering manifest: $manifest" >&2; exit 1; }
+  for binary in soffice pdfinfo pdftoppm; do
+    [ -f "$bundle_dir/bin/$binary" ] || { echo "Missing DOCX rendering binary: $bundle_dir/bin/$binary" >&2; exit 1; }
+    [ -x "$bundle_dir/bin/$binary" ] || { echo "DOCX rendering binary is not executable: $bundle_dir/bin/$binary" >&2; exit 1; }
+  done
+  node - "$manifest" "$target_key" <<'NODE'
+const { readFileSync } = require("node:fs");
+const [manifestPath, expectedKey] = process.argv.slice(2);
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (`${manifest.platform}-${manifest.arch}` !== expectedKey) throw new Error(`DOCX rendering manifest target mismatch: ${manifestPath}`);
+if (JSON.stringify(manifest.binaries) !== JSON.stringify(["bin/soffice", "bin/pdfinfo", "bin/pdftoppm"])) throw new Error(`DOCX rendering manifest binary list mismatch: ${manifestPath}`);
+NODE
+}
+
+for docx_target in linux-x64 linux-arm64; do
+  verify_docx_rendering_bundle "$docx_target"
+done
 cp "$REPO_ROOT/App/backend/package.json" "$PAYLOAD_DIR/App/backend/package.json"
 cp -R "$REPO_ROOT/App/backend/dist/src/adapters/outbound/skill-writer" \
   "$PAYLOAD_DIR/App/backend/dist/src/adapters/outbound/skill-writer"

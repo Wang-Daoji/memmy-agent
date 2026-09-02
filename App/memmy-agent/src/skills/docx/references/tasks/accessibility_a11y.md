@@ -11,32 +11,32 @@ This is **not** a full WCAG compliance engine. It targets the highest-ROI checks
 
 ## Audit
 ```bash
-python scripts/a11y_audit.py input.docx
+node scripts/a11y_audit.mjs input.docx
 ```
 
 This prints a JSON-ish report to stdout and exits non-zero if **high severity** issues exist.
 
 To write the report to a file instead:
 ```bash
-python scripts/a11y_audit.py input.docx --out_json a11y_report.json
+node scripts/a11y_audit.mjs input.docx --out_json a11y_report.json
 ```
 
 ## Apply quick fixes (optional)
 ### 1) Fill missing image alt text using filenames
 This is a pragmatic baseline that is better than empty alt text.
 ```bash
-python scripts/a11y_audit.py input.docx --fix_image_alt from_filename --out a11y_fixed.docx
+node scripts/a11y_audit.mjs input.docx --fix_image_alt from_filename --out a11y_fixed.docx
 ```
 
 ### 2) Mark first row as a table header
 Only do this when the first row *is actually* a header.
 ```bash
-python scripts/a11y_audit.py input.docx --fix_table_headers first_row --out a11y_fixed.docx
+node scripts/a11y_audit.mjs input.docx --fix_table_headers first_row --out a11y_fixed.docx
 ```
 
 You can combine fixes:
 ```bash
-python scripts/a11y_audit.py input.docx \
+node scripts/a11y_audit.mjs input.docx \
   --fix_image_alt from_filename \
   --fix_table_headers first_row \
   --out a11y_fixed.docx
@@ -46,7 +46,7 @@ python scripts/a11y_audit.py input.docx \
 1) Apply fixes (if any)
 2) **Render → inspect PNGs** to confirm nothing drifted visually:
 ```bash
-python scripts/render_docx.py a11y_fixed.docx --output_dir out_a11y
+node scripts/render_docx.mjs a11y_fixed.docx --output_dir out_a11y
 ```
 
 ## Pitfalls

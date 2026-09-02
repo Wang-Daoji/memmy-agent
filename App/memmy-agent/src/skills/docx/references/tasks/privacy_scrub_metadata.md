@@ -7,16 +7,16 @@ machine metadata:
 - Custom properties: docProps/custom.xml (if present)
 - Word revision session IDs (rsid* attributes) in story parts
 
-This does **not** remove semantic content (text/images) and does not redact PII in the content. For content redaction, use `redact_docx.py`.
+This does **not** remove semantic content (text/images) and does not redact PII in the content. For content redaction, use `redact_docx.mjs`.
 
 ## Scrub a doc
 ```bash
-python scripts/privacy_scrub.py input.docx --out scrubbed.docx
+node scripts/privacy_scrub.mjs input.docx --out scrubbed.docx
 ```
 
 ## Verify
 ```bash
-python scripts/render_docx.py scrubbed.docx --output_dir out_scrubbed
+node scripts/render_docx.mjs scrubbed.docx --output_dir out_scrubbed
 ```
 
 ## Pitfalls

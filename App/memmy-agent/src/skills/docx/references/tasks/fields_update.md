@@ -11,7 +11,7 @@ Common fields:
 
 ## When this matters
 - PDF/PNG render shows placeholders (e.g., TOC looks empty, refs show wrong page, page numbers all “1”).
-- The doc was modified programmatically (python-docx / OOXML patch) and then exported without a field refresh.
+- The doc was modified programmatically (Node OOXML / OOXML patch) and then exported without a field refresh.
 - LibreOffice vs Word disagree.
 
 ## What to do
@@ -19,7 +19,7 @@ Common fields:
 Run a quick field inventory:
 
 ```bash
-python scripts/fields_report.py /mnt/data/input.docx
+node scripts/fields_report.mjs /mnt/data/input.docx
 ```
 
 If you see `TOC`, `REF`, `PAGEREF`, `NUMPAGES`, or `PAGE`, plan for a field refresh step.
@@ -27,7 +27,7 @@ If you see `TOC`, `REF`, `PAGEREF`, `NUMPAGES`, or `PAGE`, plan for a field refr
 ### 2) Render and inspect
 
 ```bash
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out
 ```
 
 Inspect all `page-*.png` at 100% zoom.
@@ -38,7 +38,7 @@ Inspect all `page-*.png` at 100% zoom.
 2. `Ctrl+A` (select all)
 3. `F9` (Update Fields)
 4. Save
-5. Re-render with `render_docx.py`
+5. Re-render with `render_docx.mjs`
 
 LibreOffice (GUI) can also update fields, but Word is the reference implementation.
 
@@ -48,10 +48,10 @@ If your goal is **stable PNG regression testing** (not perfect Word semantics), 
 
 ```bash
 # Replace REF/PAGEREF blocks with their currently cached visible text
-python scripts/flatten_ref_fields.py input.docx --out ref_flattened.docx
+node scripts/flatten_ref_fields.mjs input.docx --out ref_flattened.docx
 
 # Materialize SEQ/REF results (e.g., caption numbers / cross-refs)
-python scripts/fields_materialize.py ref_flattened.docx --out fields_materialized.docx
+node scripts/fields_materialize.mjs ref_flattened.docx --out fields_materialized.docx
 ```
 
 Notes:

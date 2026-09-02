@@ -3,8 +3,8 @@
 ## When to use
 Use this when the user wants a **fillable DOCX template** (fields, dropdowns, checkboxes) or when you need to **populate** an existing template that contains Word content controls.
 
-`python-docx` does not support SDTs. Use the helper script:
-- `scripts/content_controls.py`
+`Node OOXML` does not support SDTs. Use the helper script:
+- `scripts/content_controls.mjs`
 
 This task doc focuses on **plain-text SDTs** (the most common case for templates).
 
@@ -15,13 +15,13 @@ This task doc focuses on **plain-text SDTs** (the most common case for templates
 
 2. **Wrap placeholders into SDTs**
 ```bash
-python scripts/content_controls.py /mnt/data/template.docx wrap_placeholders \
+node scripts/content_controls.mjs /mnt/data/template.docx wrap_placeholders \
   --output /mnt/data/template_sdt.docx
 ```
 
 3. **Populate SDTs by tag**
 ```bash
-python scripts/content_controls.py /mnt/data/template_sdt.docx fill \
+node scripts/content_controls.mjs /mnt/data/template_sdt.docx fill \
   --set NAME="Ada Lovelace" \
   --set EMAIL="ada@example.com" \
   --output /mnt/data/filled.docx
@@ -29,14 +29,14 @@ python scripts/content_controls.py /mnt/data/template_sdt.docx fill \
 
 4. **Render for QA**
 ```bash
-python scripts/render_docx.py /mnt/data/filled.docx --output_dir /mnt/data/out_forms
+node scripts/render_docx.mjs /mnt/data/filled.docx --output_dir /mnt/data/out_forms
 ```
 Inspect `page-<N>.png` at 100% zoom.
 
 ## Listing / debugging
 List all SDTs (tag, alias, visible text, part location):
 ```bash
-python scripts/content_controls.py /mnt/data/template_sdt.docx list --json
+node scripts/content_controls.mjs /mnt/data/template_sdt.docx list --json
 ```
 
 ## Pitfalls / lessons learned

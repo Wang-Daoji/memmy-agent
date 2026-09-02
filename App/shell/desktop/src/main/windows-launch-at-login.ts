@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 
 interface WindowsLoginItemOptions {
   path: string;
@@ -47,17 +47,18 @@ export const resolveWindowsLoginItemCommand = (
 ): WindowsLoginItemOptions => {
   const localAppDataPath = environment.localAppDataPath?.trim();
   const systemRootPath = environment.systemRootPath?.trim();
+  const joinWindowsPath = environment.platform === "win32" ? win32.join : join;
   if (!localAppDataPath || !systemRootPath) {
     return { path: environment.executablePath, args: [] };
   }
 
-  const launcherPath = join(localAppDataPath, "Memmy", "launcher", "MemmyLauncher.vbs");
+  const launcherPath = joinWindowsPath(localAppDataPath, "Memmy", "launcher", "MemmyLauncher.vbs");
   if (!pathExists(launcherPath)) {
     return { path: environment.executablePath, args: [] };
   }
 
   return {
-    path: join(systemRootPath, "System32", "wscript.exe"),
+    path: joinWindowsPath(systemRootPath, "System32", "wscript.exe"),
     args: [`"${launcherPath}"`]
   };
 };

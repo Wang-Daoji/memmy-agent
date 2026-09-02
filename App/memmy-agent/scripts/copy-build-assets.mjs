@@ -13,6 +13,9 @@ const staleFiles = [
 
 for (const target of staleDirectories) fs.rmSync(target, { recursive: true, force: true });
 for (const target of staleFiles) fs.rmSync(target, { force: true });
+// Replace the DOCX skill directory as a unit so removed script extensions do
+// not survive in dist from an earlier build.
+fs.rmSync(path.join("dist", "skills", "docx"), { recursive: true, force: true });
 
 for (const source of ["src/templates", "src/skills"]) {
   const destination = path.join("dist", path.relative("src", source));
@@ -20,4 +23,14 @@ for (const source of ["src/templates", "src/skills"]) {
     recursive: true,
     filter: (entry) => !entry.endsWith(".ts"),
   });
+}
+
+const renderingSource = path.resolve("extra-dependencies/docx-rendering");
+const renderingDestination = path.resolve("dist/extra-dependencies/docx-rendering");
+if (fs.existsSync(renderingSource)) {
+  const staging = `${renderingDestination}.staging-${process.pid}`;
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.cpSync(renderingSource, staging, { recursive: true, force: true });
+  fs.rmSync(renderingDestination, { recursive: true, force: true });
+  fs.renameSync(staging, renderingDestination);
 }

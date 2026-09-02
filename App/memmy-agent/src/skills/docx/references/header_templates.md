@@ -8,7 +8,7 @@ Use this reference when creating a new DOCX or a major repackage that needs firs
 2. Use exactly one first-page header pattern. Do not mix centered-cover, memo metadata, metric-strip, and quote treatments in the same opening block.
 3. Set the running section header/footer first, then build the visible first-page title block.
 4. Replace sample text, colors, and metadata with the document's actual content. Keep the structure, hierarchy, and spacing intent.
-5. Treat these snippets as inspiration, not a dependency. If helper names differ, implement the same Word-native effects with `python-docx`: real paragraphs, paragraph borders for rules, explicit table geometry for metadata grids, and standard section headers/footers.
+5. Treat these snippets as inspiration, not a dependency. If helper names differ, implement the same Word-native effects with `Node OOXML`: real paragraphs, paragraph borders for rules, explicit table geometry for metadata grids, and standard section headers/footers.
 6. No border bottoms for header
 
 ## Pattern Picker
@@ -38,7 +38,7 @@ If those helpers are unavailable, recreate the effects directly:
 
 ## `memo_masthead`
 
-```python
+```node
 def set_run_font(run, name="Arial", size=None, color=None, bold=None, italic=None):
     run.font.name = name
     run._element.rPr.rFonts.set(qn("w:ascii"), name)
@@ -109,7 +109,7 @@ def page_memo_masthead(doc, section):
 
 ## `proposal_centerpiece`
 
-```python
+```node
 def page_proposal_centerpiece(doc, section):
     set_section_header(
         section,
@@ -177,7 +177,7 @@ def page_proposal_centerpiece(doc, section):
 
 ## `editorial_cover`
 
-```python
+```node
 def page_editorial_cover(doc, section):
     set_section_header(
         section,
@@ -250,7 +250,7 @@ def page_editorial_cover(doc, section):
 
 ## `customer_pack`
 
-```python
+```node
 def page_customer_pack(doc, section):
     set_section_header(
         section,
@@ -289,7 +289,7 @@ def page_customer_pack(doc, section):
 
 ## `workshop_agenda`
 
-```python
+```node
 def page_workshop_agenda(doc, section):
     set_section_header(
         section,
@@ -325,7 +325,7 @@ def page_workshop_agenda(doc, section):
 
 ## `customer_story`
 
-```python
+```node
 def page_customer_story(doc, section):
     set_section_header(
         section,

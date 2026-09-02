@@ -13,21 +13,21 @@ This is useful for:
 
 ## Set protection mode
 ```bash
-python scripts/set_protection.py input.docx --mode readOnly --out protected.docx
-python scripts/set_protection.py input.docx --mode comments --out comments_only.docx
-python scripts/set_protection.py input.docx --mode trackedChanges --out tc_only.docx
-python scripts/set_protection.py input.docx --mode forms --out forms_only.docx
+node scripts/set_protection.mjs input.docx --mode readOnly --out protected.docx
+node scripts/set_protection.mjs input.docx --mode comments --out comments_only.docx
+node scripts/set_protection.mjs input.docx --mode trackedChanges --out tc_only.docx
+node scripts/set_protection.mjs input.docx --mode forms --out forms_only.docx
 ```
 
 ## Remove protection
 ```bash
-python scripts/set_protection.py input.docx --mode off --out unprotected.docx
+node scripts/set_protection.mjs input.docx --mode off --out unprotected.docx
 ```
 
 ## Verification
 Render to PNGs (layout should be unchanged):
 ```bash
-python scripts/render_docx.py protected.docx --output_dir out_protected
+node scripts/render_docx.mjs protected.docx --output_dir out_protected
 ```
 
 ## Pitfalls

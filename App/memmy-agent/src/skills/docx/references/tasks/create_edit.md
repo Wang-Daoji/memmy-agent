@@ -1,7 +1,7 @@
 # Task: Create / edit a DOCX
 
-## Default tool: python-docx
-Use `python-docx` for:
+## Default tool: Node OOXML
+Use `Node OOXML` for:
 - paragraphs/runs
 - built-in heading styles (Heading 1 / Heading 2)
 - tables (structure + cell text + basic formatting)
@@ -11,31 +11,25 @@ For a new document, choose and resolve a design preset before drafting. Set
 title, heading, body, list, table, header, and footer styles explicitly rather
 than relying on renderer defaults. See `references/design_presets.md`.
 
-## Practical python-docx gotchas
+## Practical Node OOXML gotchas
 
 ### 1) Header/footer tables require a width
 When adding tables to headers/footers, `add_table` requires an explicit width:
 
-```python
-from docx.shared import Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-
-section = doc.sections[0]
-footer = section.footer
-table = footer.add_table(rows=1, cols=3, width=Inches(6.5))
-# Align text inside each cell
-table.rows[0].cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+```node
+const table = createTable(document, { rows: 1, columns: 3, widthInches: 6.5 });
+setParagraphAlignment(tableCellParagraph(table, 0, 0), "left");
+setParagraphAlignment(tableCellParagraph(table, 0, 1), "center");
+setParagraphAlignment(tableCellParagraph(table, 0, 2), "right");
 ```
 
 ### 2) Fonts can require setting both `run.font.name` and `w:rFonts`
 Some renderers/Word builds don’t respect only `run.font.name`:
 
-```python
-from docx.oxml.ns import qn
-
-run.font.name = "Gill Sans"
-run._element.rPr.rFonts.set(qn("w:ascii"), "Gill Sans")
-run._element.rPr.rFonts.set(qn("w:hAnsi"), "Gill Sans")
+```node
+setRunFont(run, "Gill Sans");
+setRunFontAttribute(run, "w:ascii", "Gill Sans");
+setRunFontAttribute(run, "w:hAnsi", "Gill Sans");
 ```
 
 ### 3) “Clear header paragraph” isn’t always one call

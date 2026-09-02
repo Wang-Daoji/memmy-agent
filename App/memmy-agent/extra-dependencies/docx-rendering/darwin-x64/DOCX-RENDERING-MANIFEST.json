@@ -1,0 +1,6 @@
+{
+  "platform": "darwin",
+  "arch": "x64",
+  "binaries": ["bin/soffice", "bin/pdfinfo", "bin/pdftoppm"],
+  "provisionedBy": "release packaging"
+}

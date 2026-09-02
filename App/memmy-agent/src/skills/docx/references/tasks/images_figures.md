@@ -17,7 +17,7 @@ Image placement is the #1 LO-vs-Word mismatch.
 
 ## Audit
 ```bash
-python scripts/images_audit.py /mnt/data/input.docx
+node scripts/images_audit.mjs /mnt/data/input.docx
 ```
 
 If you see `anchor` rows, treat as high-risk and inspect renders closely.

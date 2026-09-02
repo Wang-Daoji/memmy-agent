@@ -10,19 +10,19 @@ This helper is intentionally scoped:
 
 ## Append doc B to doc A
 ```bash
-python scripts/merge_docx_append.py base.docx append.docx --out merged.docx
+node scripts/merge_docx_append.mjs base.docx append.docx --out merged.docx
 ```
 
 ## Allow drawings/images (optional, less safe)
 If you know both documents have compatible relationships and you are okay with best-effort behavior:
 ```bash
-python scripts/merge_docx_append.py base.docx append.docx --out merged.docx --allow_drawings
+node scripts/merge_docx_append.mjs base.docx append.docx --out merged.docx --allow_drawings
 ```
 
 ## Verify
 Always render and inspect:
 ```bash
-python scripts/render_docx.py merged.docx --output_dir out_merged
+node scripts/render_docx.mjs merged.docx --output_dir out_merged
 ```
 
 ## Pitfalls

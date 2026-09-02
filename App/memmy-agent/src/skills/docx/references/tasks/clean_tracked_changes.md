@@ -16,19 +16,19 @@ Many “looks wrong” reports come from:
 ## Steps
 1. **Inspect** how many revisions exist:
    ```bash
-   python scripts/accept_tracked_changes.py input.docx --mode report
+   node scripts/accept_tracked_changes.mjs input.docx --mode report
    ```
 2. **Accept** all tracked changes into a clean copy:
    ```bash
-   python scripts/accept_tracked_changes.py input.docx --mode accept --out accepted.docx
+   node scripts/accept_tracked_changes.mjs input.docx --mode accept --out accepted.docx
    ```
    (Or reject):
    ```bash
-   python scripts/accept_tracked_changes.py input.docx --mode reject --out rejected.docx
+   node scripts/accept_tracked_changes.mjs input.docx --mode reject --out rejected.docx
    ```
 3. **Render → PNG review** (required):
    ```bash
-   python scripts/render_docx.py accepted.docx --output_dir out_accept
+   node scripts/render_docx.mjs accepted.docx --output_dir out_accept
    ```
 
 ## Render → PNG review checklist

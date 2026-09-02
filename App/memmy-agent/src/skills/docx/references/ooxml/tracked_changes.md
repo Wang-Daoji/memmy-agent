@@ -3,7 +3,7 @@
 ## When to use
 Use OOXML patching when the user needs *real* Word tracked changes, i.e. redlines that appear as insertions/deletions in Word.
 
-`python-docx` does **not** provide a first-class API for tracked changes.
+`Node OOXML` does **not** provide a first-class API for tracked changes.
 
 ## Minimum wiring
 Tracked changes typically involve:
@@ -29,7 +29,7 @@ Pseudo-structure:
 ```
 
 ## Recommended: use the helper script
-See `scripts/docx_ooxml_patch.py` for a runnable patcher that:
+See `scripts/docx_ooxml_patch.mjs` for a runnable patcher that:
 - enables `<w:trackRevisions/>`
 - converts an existing `<w:ins>` to `<w:del>` and inserts a new `<w:ins>`
 

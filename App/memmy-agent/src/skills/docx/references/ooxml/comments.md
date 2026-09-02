@@ -25,7 +25,7 @@ A comment requires three cooperating pieces:
 - Create or append the comment body in `comments.xml`.
 
 ## Recommended: use the helper script
-See `scripts/docx_ooxml_patch.py` (`--add-comment`). It:
+See `scripts/docx_ooxml_patch.mjs` (`--add-comment`). It:
 - auto-picks a non-colliding comment id by scanning the DOCX
 - **appends** to `word/comments.xml` if it already exists (does not overwrite existing comments)
 - reuses an existing comments relationship if present (avoids duplicate rels)

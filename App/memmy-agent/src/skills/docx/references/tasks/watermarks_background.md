@@ -12,17 +12,17 @@ Other documents may use DrawingML shapes or background images.
 ## Steps
 1. Audit the document:
    ```bash
-   python scripts/watermark_audit_remove.py input.docx --mode report
+   node scripts/watermark_audit_remove.mjs input.docx --mode report
    ```
 
 2. Remove (heuristic) by matching a substring inside the watermark text:
    ```bash
-   python scripts/watermark_audit_remove.py input.docx --mode remove --contains DRAFT --out cleaned.docx
+   node scripts/watermark_audit_remove.mjs input.docx --mode remove --contains DRAFT --out cleaned.docx
    ```
 
 3. Render and diff (recommended for QA/regressions):
    ```bash
-   python scripts/render_and_diff.py input.docx cleaned.docx --outdir diff_watermark
+   node scripts/render_and_diff.mjs input.docx cleaned.docx --outdir diff_watermark
    ```
 
 ## Render → PNG review checklist

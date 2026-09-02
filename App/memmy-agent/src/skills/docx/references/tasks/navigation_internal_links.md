@@ -12,7 +12,7 @@ This is especially useful for long reports, specs, or demo/QA artifacts.
 ## Key idea
 Word internal links are `w:hyperlink w:anchor="<bookmarkName>"`.
 
-This bundle provides `scripts/internal_nav.py` to add:
+This bundle provides `scripts/internal_nav.mjs` to add:
 - `TOC` bookmark + a **static** TOC section (no Word field required)
 - `Top` / `Bottom` bookmarks
 - bookmarks on headings (either `Heading 1/2/3` styles **or** `w:outlineLvl`)
@@ -32,19 +32,19 @@ Prefer real heading styles (`Heading 1/2/3`). If the document doesn't use headin
 If you want jump links for figures/tables, run:
 
 ```bash
-python scripts/captions_and_crossrefs.py /mnt/data/in.docx /mnt/data/with_caps.docx --figures --tables --bookmarks
+node scripts/captions_and_crossrefs.mjs /mnt/data/in.docx /mnt/data/with_caps.docx --figures --tables --bookmarks
 ```
 
 3) Add navigation
 
 ```bash
-python scripts/internal_nav.py /mnt/data/with_caps.docx --out /mnt/data/with_nav.docx
+node scripts/internal_nav.mjs /mnt/data/with_caps.docx --out /mnt/data/with_nav.docx
 ```
 
 4) Render and verify
 
 ```bash
-python scripts/render_docx.py /mnt/data/with_nav.docx --output_dir /mnt/data/out_nav
+node scripts/render_docx.mjs /mnt/data/with_nav.docx --output_dir /mnt/data/out_nav
 ```
 
 Verify:

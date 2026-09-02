@@ -14,12 +14,12 @@ Direct formatting (manual bold/size/etc. on runs) can override style packs and c
 ## Steps
 1. Apply the template parts to your doc:
    ```bash
-   python scripts/apply_template_styles.py --template template.dotx --target report.docx --out report_styled.docx
+   node scripts/apply_template_styles.mjs --template template.dotx --target report.docx --out report_styled.docx
    ```
 
 2. Render and review:
    ```bash
-   python scripts/render_docx.py report_styled.docx --output_dir out_styled
+   node scripts/render_docx.mjs report_styled.docx --output_dir out_styled
    ```
 
 ## Render → PNG review checklist

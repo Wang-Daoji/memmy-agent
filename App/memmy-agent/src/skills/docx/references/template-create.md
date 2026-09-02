@@ -30,11 +30,11 @@ document presets do not replace the template's visual system.
    that `artifact.md` permits. Do not silently shrink text or overlay a second
    design system.
 5. For an existing text or relationship-backed slot, prefer a task-local
-   package patch built on `scripts/docx_ooxml_patch.py`; this preserves untouched
-   package parts byte-for-byte. Use `python-docx` only when the planned edit
+   package patch built on `scripts/docx_ooxml_patch.mjs`; this preserves untouched
+   package parts byte-for-byte. Use `Node OOXML` only when the planned edit
    needs its object model and the preserve-only package comparison still passes.
    Do not rebuild unaffected package parts.
-6. Use `scripts/content_controls.py list` to locate content controls, but do not
+6. Use `scripts/content_controls.mjs list` to locate content controls, but do not
    use its `fill` command in template-following mode because it reconstructs the
    control content. For a verified plain-text control, use a task-local package
    patch that changes only the intended text nodes while preserving the
@@ -57,7 +57,7 @@ such as `$TMP_DIR/template-fidelity-diff-$ITERATION`. Produce a reference/final
 diff, then inspect every final page under its `b_render` directory at 100% zoom:
 
 ```bash
-"$PYTHON_BIN" "$SKILL_DIR/scripts/render_and_diff.py" \
+node "$SKILL_DIR/scripts/render_and_diff.mjs" \
   "$REFERENCE_DOCX" "$FINAL_DOCX" \
   --outdir "$QA_RUN_DIR"
 ```

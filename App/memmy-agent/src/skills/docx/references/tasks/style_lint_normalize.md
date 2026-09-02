@@ -8,8 +8,8 @@ Use this when the user asks for:
 - "Why do headings look inconsistent?"
 
 This bundle provides:
-- `scripts/style_lint.py` — report likely inconsistencies
-- `scripts/style_normalize.py` — conservative cleanup (optional)
+- `scripts/style_lint.mjs` — report likely inconsistencies
+- `scripts/style_normalize.mjs` — conservative cleanup (optional)
 
 ## The reliable workflow
 1. **Render to PNGs** (baseline) and inspect a few problem areas.
@@ -19,7 +19,7 @@ This bundle provides:
 
 ## 1) Lint
 ```bash
-python scripts/style_lint.py input.docx --json /mnt/data/style_report.json
+node scripts/style_lint.mjs input.docx --json /mnt/data/style_report.json
 ```
 What to look for:
 - Lots of `run_direct_formatting`: common cause of “why is this one different”.
@@ -27,34 +27,34 @@ What to look for:
 - “Heading-like” paragraphs that are not actually Heading styles.
 
 ## 2) Normalize (conservative)
-`style_normalize.py` always clears **run-level** direct formatting overrides (bold/italic/underline/font/size/color) so styles drive appearance.
+`style_normalize.mjs` always clears **run-level** direct formatting overrides (bold/italic/underline/font/size/color) so styles drive appearance.
 
 ### A) Default normalization (recommended starting point)
 ```bash
-python scripts/style_normalize.py input.docx out_normalized.docx
+node scripts/style_normalize.mjs input.docx out_normalized.docx
 ```
 
 
-> Tip: `style_normalize.py` also accepts `--out` as an alias:
+> Tip: `style_normalize.mjs` also accepts `--out` as an alias:
 > ```bash
-> python scripts/style_normalize.py input.docx --out out_normalized.docx
+> node scripts/style_normalize.mjs input.docx --out out_normalized.docx
 > ```
 
 ### B) Also clear paragraph-level overrides (use sparingly)
 This can change layout. Use only when the user wants style-driven spacing/indents:
 ```bash
-python scripts/style_normalize.py input.docx out_normalized.docx --clear_paragraph_format
+node scripts/style_normalize.mjs input.docx out_normalized.docx --clear_paragraph_format
 ```
 
 ### C) Enforce a simple heading spacing rule
 Useful when headings are visually inconsistent (space-after drift):
 ```bash
-python scripts/style_normalize.py input.docx out_normalized.docx --enforce_heading_spacing
+node scripts/style_normalize.mjs input.docx out_normalized.docx --enforce_heading_spacing
 ```
 
 ## Visual QA gate
 ```bash
-python scripts/render_docx.py out_normalized.docx --output_dir /mnt/data/out_norm
+node scripts/render_docx.mjs out_normalized.docx --output_dir /mnt/data/out_norm
 ```
 Success criteria:
 - No clipped/overlapping text

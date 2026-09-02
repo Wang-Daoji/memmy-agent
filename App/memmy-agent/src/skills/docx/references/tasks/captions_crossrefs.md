@@ -10,10 +10,10 @@ Word implements captions/cross-references using fields:
 - `SEQ` for numbering (e.g., `SEQ Table` / `SEQ Figure`)
 - `REF` to reference a bookmark (cross-reference target)
 
-`python-docx` does not provide a high-level API for these fields, so this bundle uses OOXML-level helpers:
-- `scripts/captions_and_crossrefs.py` — insert caption paragraphs + optional bookmarks around the caption number
-- `scripts/insert_ref_fields.py` — replace `[[REF:bookmark]]` markers with real `REF` fields
-- `scripts/fields_materialize.py` — materialize `SEQ/REF` *display text* so headless renders show the correct numbers
+`Node OOXML` does not provide a high-level API for these fields, so this bundle uses OOXML-level helpers:
+- `scripts/captions_and_crossrefs.mjs` — insert caption paragraphs + optional bookmarks around the caption number
+- `scripts/insert_ref_fields.mjs` — replace `[[REF:bookmark]]` markers with real `REF` fields
+- `scripts/fields_materialize.mjs` — materialize `SEQ/REF` *display text* so headless renders show the correct numbers
 
 ## The practical gotcha
 Fields **do not reliably update** in headless environments. If you only insert field codes (`SEQ`/`REF`), the rendered number may be blank or stale.
@@ -32,7 +32,7 @@ A human can still open the document later and update fields, but for automation 
 This adds captions for tables and/or figures that don't already have a `Caption` paragraph immediately after them.
 
 ```bash
-python scripts/captions_and_crossrefs.py \
+node scripts/captions_and_crossrefs.mjs \
   /mnt/data/in.docx \
   /mnt/data/with_captions.docx \
   --tables --figures \
@@ -55,7 +55,7 @@ What it does:
 Then replace markers with real `REF` fields:
 
 ```bash
-python scripts/insert_ref_fields.py \
+node scripts/insert_ref_fields.mjs \
   /mnt/data/with_captions.docx \
   /mnt/data/with_refs.docx
 ```
@@ -67,21 +67,21 @@ Notes:
 
 ### 3) Materialize (freeze) SEQ/REF results for deterministic renders
 ```bash
-python scripts/fields_materialize.py \
+node scripts/fields_materialize.mjs \
   /mnt/data/with_refs.docx \
   --out /mnt/data/with_refs_materialized.docx
 ```
 
-Implementation note: `fields_materialize.py` materializes `SEQ` values before `REF` values so cross-references see the updated caption numbers.
+Implementation note: `fields_materialize.mjs` materializes `SEQ` values before `REF` values so cross-references see the updated caption numbers.
 
 If you only want to materialize one type:
 ```bash
-python scripts/fields_materialize.py /mnt/data/with_refs.docx --out /mnt/data/out.docx --only REF
+node scripts/fields_materialize.mjs /mnt/data/with_refs.docx --out /mnt/data/out.docx --only REF
 ```
 
 ### 4) Render and visually QA
 ```bash
-python scripts/render_docx.py /mnt/data/with_refs_materialized.docx --output_dir /mnt/data/out_caps
+node scripts/render_docx.mjs /mnt/data/with_refs_materialized.docx --output_dir /mnt/data/out_caps
 ```
 Inspect the PNGs.
 
@@ -90,7 +90,7 @@ Inspect the PNGs.
 ## Pitfalls / tips
 - **Caption style availability:** if the document doesn’t define a `Caption` style, captions may appear as Normal text. If the user cares, apply a template/style pack first.
 - **Figures detection:** this script treats paragraphs containing a `<w:drawing>`/`<w:pict>` as a "figure paragraph".
-- **Edits after materializing:** if you insert/remove figures/tables later, re-run `fields_materialize.py` to recompute numbering.
+- **Edits after materializing:** if you insert/remove figures/tables later, re-run `fields_materialize.mjs` to recompute numbering.
 
 ## Deliverables
 - Deliver **only the final DOCX** requested by the user.

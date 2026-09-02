@@ -10,17 +10,14 @@ Produce structured documents that are consistent, readable, and TOC-friendly.
 2. Keep heading hierarchy consistent: don’t jump from Heading 1 → Heading 3 unless the document truly skips a level.
 3. Numbered headings are *not* the same thing as bullet lists. If you need Word’s multilevel numbering, use a template where the numbering definitions already exist (DOTX), or accept that it’s brittle to generate from scratch.
 
-## Minimal python-docx patterns
+## Minimal Node OOXML patterns
 
 ### Set heading styles
-```python
-from docx import Document
-
-doc = Document()
-doc.add_paragraph("Executive Summary", style="Heading 1")
-doc.add_paragraph("Background", style="Heading 2")
-doc.add_paragraph("Prior Work", style="Heading 3")
-doc.save("out.docx")
+```node
+appendParagraph(document, "Executive Summary", { style: "Heading1" });
+appendParagraph(document, "Background", { style: "Heading2" });
+appendParagraph(document, "Prior Work", { style: "Heading3" });
+writeDocx(document, "out.docx");
 ```
 
 ### Avoid direct formatting
@@ -28,7 +25,7 @@ If you must adjust typography, do it by editing the style definitions (template)
 
 ## Validate structure quickly
 ```bash
-python scripts/heading_audit.py /mnt/data/input.docx
+node scripts/heading_audit.mjs /mnt/data/input.docx
 ```
 
 ## Render → PNG review checklist (headings)

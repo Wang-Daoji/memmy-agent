@@ -7,13 +7,13 @@ DOCX editing tools can "succeed" while the visual output is broken. Always verif
 This uses a dedicated LibreOffice profile + writable HOME and produces `page-<N>.png` images:
 
 ```bash
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out
-# macOS: start Python with a stable temp dir if LibreOffice aborts
-env TMPDIR=/private/tmp python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out
+# macOS: use a stable temp dir if LibreOffice aborts
+env TMPDIR=/private/tmp node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out
 # For debugging LibreOffice failures:
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out --verbose
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out --verbose
 # Optional: also write <input_stem>.pdf to --output_dir (for debugging/archival):
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out --emit_pdf
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out --emit_pdf
 ```
 
 ## Manual render command (if you need it)

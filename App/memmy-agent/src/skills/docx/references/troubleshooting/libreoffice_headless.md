@@ -4,17 +4,17 @@
 This is commonly caused by LibreOffice failing to create/lock its user profile, or attempting to write config/cache under a non-writable `HOME`.
 
 ## Fix (recommended): use the packaged renderer script
-Use the canonical helper (`render_docx.py`). It:
+Use the canonical helper (`render_docx.mjs`). It:
 - creates a unique per-run LibreOffice profile
 - forces a writable `HOME` / XDG dirs under that profile
 - captures stdout/stderr so failures are diagnosable
 
 ```bash
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out
-# macOS: set TMPDIR before Python starts when the default temp directory is unstable
-env TMPDIR=/private/tmp python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out
+# macOS: set TMPDIR before the renderer starts when the default temp directory is unstable
+env TMPDIR=/private/tmp node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out
 # If you're debugging a conversion failure:
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out --verbose
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out --verbose
 ```
 
 ## Fix (manual): profile + writable HOME

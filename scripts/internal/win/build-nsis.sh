@@ -9,6 +9,7 @@ MEMORY_DIR="$ROOT_DIR/Memory"
 MIGRATIONS_DIR="$ROOT_DIR/Migrations"
 LOCAL_API_CONTRACTS_DIR="$ROOT_DIR/App/backend/local-api-contracts"
 RUNTIME_DIR="$DESKTOP_DIR/dist/runtime"
+DOCX_RENDERING_RUNTIME_DIR="$RUNTIME_DIR/memmy-agent/dist/extra-dependencies/docx-rendering"
 MIGRATIONS_STAGING_DIR="$DESKTOP_DIR/dist/Migrations"
 CLI_BIN_DIR="$RUNTIME_DIR/bin"
 EMBEDDING_MODELS_DIR="$DESKTOP_DIR/dist/embedding-models"
@@ -167,6 +168,28 @@ require_packaged_runtime_glob() {
     echo "Missing required packaged runtime file matching: $required_pattern" >&2
     exit 1
   fi
+}
+
+verify_docx_rendering_bundle() {
+  local bundle_dir="$DOCX_RENDERING_RUNTIME_DIR/win32-x64"
+  local manifest="$bundle_dir/DOCX-RENDERING-MANIFEST.json"
+
+  for candidate in "$DOCX_RENDERING_RUNTIME_DIR"/*; do
+    [ -e "$candidate" ] || continue
+    if [ "$(basename "$candidate")" != "win32-x64" ]; then rm -rf "$candidate"; fi
+  done
+  require_packaged_runtime_file "$manifest"
+  for binary in soffice.exe pdfinfo.exe pdftoppm.exe; do
+    require_packaged_runtime_file "$bundle_dir/bin/$binary"
+  done
+
+  node - "$manifest" <<'NODE'
+const { readFileSync } = require("node:fs");
+const [manifestPath] = process.argv.slice(2);
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (`${manifest.platform}-${manifest.arch}` !== "win32-x64") throw new Error(`DOCX rendering manifest target mismatch: ${manifestPath}`);
+if (JSON.stringify(manifest.binaries) !== JSON.stringify(["bin/soffice.exe", "bin/pdfinfo.exe", "bin/pdftoppm.exe"])) throw new Error(`DOCX rendering manifest binary list mismatch: ${manifestPath}`);
+NODE
 }
 
 require_packaged_runtime_absent() {
@@ -734,6 +757,7 @@ verify_windows_sharp_module
 
 package_step_start "Stage Windows memmy-agent runtime files"
 cp -R "$AGENT_DIR/dist" "$RUNTIME_DIR/memmy-agent/dist"
+verify_docx_rendering_bundle
 cp "$AGENT_DIR/package.json" "$RUNTIME_DIR/memmy-agent/package.json"
 cp "$AGENT_DIR/package-lock.json" "$RUNTIME_DIR/memmy-agent/package-lock.json"
 

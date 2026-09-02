@@ -8,15 +8,15 @@ Common situations:
 - **Final mode**: remove comments (and optionally accept tracked changes) and deliver a clean `.docx`.
 - **Triage mode**: extract comments into a machine-readable report (JSON/Markdown) for summarization.
 
-> Word "resolved" state is not reliably round-trippable with `python-docx` alone. This skill focuses on **reliable** operations.
+> Word "resolved" state is not reliably round-trippable with `Node OOXML` alone. This skill focuses on **reliable** operations.
 
 ## Adding comments (true Word comments)
-If the task is to *insert* new comments (not just extract/strip), use the OOXML-level guide: `references/ooxml/comments.md` (via `scripts/docx_ooxml_patch.py`).
+If the task is to *insert* new comments (not just extract/strip), use the OOXML-level guide: `references/ooxml/comments.md` (via `scripts/docx_ooxml_patch.mjs`).
 
 ## Add comments at scale (review mode)
 For programmatic review injection (multiple comments across the document), use:
 ```bash
-python scripts/comments_add.py input.docx --out reviewed.docx   --add "Payment Terms=Please confirm Net 45 is acceptable."   --add "Governing Law=Prefer Delaware; any constraints?"   --ignore_case
+node scripts/comments_add.mjs input.docx --out reviewed.docx   --add "Payment Terms=Please confirm Net 45 is acceptable."   --add "Governing Law=Prefer Delaware; any constraints?"   --ignore_case
 ```
 Notes:
 - Matching looks across normal text **and** deleted text (`w:delText`), so it can still find anchors in docs with tracked changes.
@@ -25,7 +25,7 @@ Notes:
 ## Patch / resolve existing comments
 For updating or marking comments as resolved:
 ```bash
-python scripts/comments_extract.py reviewed.docx --out comments.json
+node scripts/comments_extract.mjs reviewed.docx --out comments.json
 
 # Create a separate patch file (JSON). Example:
 # {
@@ -37,7 +37,7 @@ python scripts/comments_extract.py reviewed.docx --out comments.json
 # }
 # (Set "resolved": false to clear the resolved state.)
 
-python scripts/comments_apply_patch.py reviewed.docx patch.json --out reviewed_v2.docx
+node scripts/comments_apply_patch.mjs reviewed.docx patch.json --out reviewed_v2.docx
 ```
 
 
@@ -45,7 +45,7 @@ python scripts/comments_apply_patch.py reviewed.docx patch.json --out reviewed_v
 ## Extract comments (triage)
 Produces JSON with comment text, author, date (if present), and the anchored snippet.
 ```bash
-python scripts/comments_extract.py input.docx --out comments.json
+node scripts/comments_extract.mjs input.docx --out comments.json
 ```
 
 ## Remove all comments (final mode)
@@ -54,15 +54,15 @@ This removes:
 - `word/comments.xml` and any comment-related relationships / content type overrides
 
 ```bash
-python scripts/comments_strip.py input.docx --out no_comments.docx
+node scripts/comments_strip.mjs input.docx --out no_comments.docx
 ```
 
 ## Recommended finalize workflow
 If the requested deliverable is a **clean final DOCX**:
 ```bash
-python scripts/accept_tracked_changes.py input.docx --mode accept --out accepted.docx
-python scripts/comments_strip.py accepted.docx --out final_clean.docx
-python scripts/render_docx.py final_clean.docx --output_dir out_final_clean
+node scripts/accept_tracked_changes.mjs input.docx --mode accept --out accepted.docx
+node scripts/comments_strip.mjs accepted.docx --out final_clean.docx
+node scripts/render_docx.mjs final_clean.docx --output_dir out_final_clean
 ```
 
 ## Pitfalls

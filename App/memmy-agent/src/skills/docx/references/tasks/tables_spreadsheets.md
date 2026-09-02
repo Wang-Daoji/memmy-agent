@@ -7,7 +7,7 @@ Move tabular data between Excel and Word reliably, without hand-copying.
 Use the helper to convert a sheet into a Word table:
 
 ```bash
-python scripts/xlsx_to_docx_table.py /mnt/data/input.xlsx /mnt/data/table.docx --title "Table: Results"
+node scripts/xlsx_to_docx_table.mjs /mnt/data/input.xlsx /mnt/data/table.docx --title "Table: Results"
 ```
 
 What it preserves (best-effort)
@@ -22,7 +22,7 @@ What it does **not** preserve
 ## Export DOCX table → CSV
 
 ```bash
-python scripts/docx_table_to_csv.py /mnt/data/input.docx --table_index 0 --out /mnt/data/table0.csv
+node scripts/docx_table_to_csv.mjs /mnt/data/input.docx --table_index 0 --out /mnt/data/table0.csv
 ```
 
 ## Render → PNG review checklist (tables)

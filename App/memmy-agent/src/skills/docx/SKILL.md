@@ -16,11 +16,11 @@ tables, forms, or rendered layout.
 2. Keep the source document unchanged for review and template-distillation
    work. Write outputs and intermediate files to a task-specific writable
    directory.
-3. Use `python-docx` for ordinary paragraphs, runs, styles, tables,
+3. Use `Node OOXML` for ordinary paragraphs, runs, styles, tables,
    headers/footers, and page setup. Use the bundled helpers under `scripts/`
    for deterministic audits and OOXML operations.
 4. After every meaningful create or edit batch, render the document with
-   `render_docx.py`, inspect every generated page image, and iterate until the
+   `render_docx.mjs`, inspect every generated page image, and iterate until the
    layout is clean.
 5. Deliver only the requested final document. Keep rendered PNGs, temporary
    PDFs, audit JSON, and diff images as internal QA artifacts unless requested.
@@ -58,7 +58,7 @@ The canonical renderer converts DOCX to PDF internally and rasterizes each page
 to `page-<N>.png`:
 
 ```bash
-python3 scripts/render_docx.py input.docx --output_dir /path/to/qa
+node scripts/render_docx.mjs input.docx --output_dir /path/to/qa
 ```
 
 Use `--emit_pdf` only when an intermediate PDF is useful for diagnosis. Use
@@ -71,7 +71,7 @@ If LibreOffice is unavailable, complete structural checks with the relevant
 audits and state that visual QA could not be performed. If conversion fails for
 another reason, diagnose the renderer/profile problem before judging the DOCX.
 
-For repeated comparisons, use `scripts/render_and_diff.py`. For a quick
+For repeated comparisons, use `scripts/render_and_diff.mjs`. For a quick
 structural pass, use the audits for sections, headings, images, fields,
 footnotes, comments, tables, styles, watermarks, accessibility, or content
 controls as applicable.
@@ -106,10 +106,10 @@ styles. Real tracked changes and Word comments require OOXML patching; use the
 corresponding helpers and perform another render plus structural check after
 any package-level change.
 
-Use `scripts/privacy_scrub.py` before publication when personal metadata or
-`rsid` values should be removed. Use `scripts/redact_docx.py` for explicit
+Use `scripts/privacy_scrub.mjs` before publication when personal metadata or
+`rsid` values should be removed. Use `scripts/redact_docx.mjs` for explicit
 redaction/anonymization requests and verify the result structurally and
-visually. Use `scripts/set_protection.py` only when the requested output needs
+visually. Use `scripts/set_protection.mjs` only when the requested output needs
 editing restrictions.
 
 ## File and command conventions
@@ -117,9 +117,9 @@ editing restrictions.
 - Refer to inputs and outputs by absolute paths when reporting results.
 - Keep temporary work in a unique writable directory; never modify a retained
   reference document during inspection.
-- Prefer the bundled Python helpers and the runtime's available `python3`,
-  `soffice`, and Poppler commands. Check command availability before relying on
-  an optional operation.
+- Prefer the bundled Node/MJS helpers and the renderer bundled with the
+  application. Check the renderer bundle before relying on an optional
+  operation.
 - Do not claim a render or audit passed unless its output was actually checked.
 - Keep citation text human-readable; do not place internal tool tokens in the
   document.

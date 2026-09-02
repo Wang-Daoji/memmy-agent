@@ -13,11 +13,11 @@
 This is the recommended path because it creates an isolated LibreOffice profile and normalizes output names to `page-<N>.png`.
 
 ```bash
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out
 # If debugging LibreOffice:
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out --verbose
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out --verbose
 # Optional: also write <input_stem>.pdf to --output_dir (for debugging/archival):
-python scripts/render_docx.py /mnt/data/input.docx --output_dir /mnt/data/out --emit_pdf
+node scripts/render_docx.mjs /mnt/data/input.docx --output_dir /mnt/data/out --emit_pdf
 ```
 
 ### Manual method (only if debugging)
