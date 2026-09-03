@@ -1,6 +1,8 @@
 {
-  "platform": "darwin",
+  "platform": "linux",
   "arch": "arm64",
   "binaries": ["bin/soffice", "bin/pdfinfo", "bin/pdftoppm"],
+  "toolVersions": {},
+  "sha256": {},
   "provisionedBy": "release packaging"
 }

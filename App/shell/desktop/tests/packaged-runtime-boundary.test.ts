@@ -348,7 +348,7 @@ describe("desktop packaged runtime boundaries", () => {
         "dist/runtime/memmy-agent/node_modules/@memmy/migrations/**"
       );
       expect(config.asarUnpack).toContain(
-        "dist/runtime/memmy-agent/dist/extra-dependencies/docx-rendering/**"
+        "dist/runtime/memmy-agent/dist/extra-dependencies/office-rendering/**"
       );
     }
   });

@@ -13,11 +13,11 @@ const TWIPS_PER_INCH = 1440;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_RENDERING_ROOT = path.resolve(
   SCRIPT_DIR,
-  "../../../../extra-dependencies/docx-rendering",
+  "../../../../extra-dependencies/office-rendering",
 );
 const DIST_RENDERING_ROOT = path.resolve(
   SCRIPT_DIR,
-  "../../../../dist/extra-dependencies/docx-rendering",
+  "../../../../dist/extra-dependencies/office-rendering",
 );
 function parseXml(bytes) {
   return new DOMParser({
@@ -86,7 +86,7 @@ function asarUnpackedRoot(root) {
 async function validManifest(directory, key) {
   try {
     const manifest = JSON.parse(
-      await fs.readFile(path.join(directory, "DOCX-RENDERING-MANIFEST.json"), "utf8"),
+      await fs.readFile(path.join(directory, "OFFICE-RENDERING-MANIFEST.json"), "utf8"),
     );
     return (
       `${manifest.platform}-${manifest.arch}` === key &&
@@ -105,6 +105,8 @@ async function resolveRenderer() {
   const key = platformKey();
   const configured = process.env.MEMMY_DOCX_RENDERING_ROOT?.trim();
   const roots = [];
+  const officeConfigured = process.env.MEMMY_OFFICE_RENDERING_ROOT?.trim();
+  if (officeConfigured) roots.push(path.resolve(officeConfigured));
   if (configured) roots.push(path.resolve(configured));
   roots.push(DIST_RENDERING_ROOT, SOURCE_RENDERING_ROOT);
   for (const root of [...roots]) {
@@ -146,7 +148,7 @@ async function resolveRenderer() {
       pdftoppm: process.platform === "win32" ? "pdftoppm.exe" : "pdftoppm",
     };
   throw new Error(
-    `DOCX renderer bundle is unavailable for platform=${process.platform} arch=${process.arch}. Tried roots: ${attempted.join(", ") || "(none)"}. Missing soffice, pdfinfo or pdftoppm. Set MEMMY_DOCX_RENDERING_ROOT for a bundled parent directory, or MEMMY_DOCX_ALLOW_SYSTEM_RENDERER=1 only for development diagnostics.`,
+    `Office renderer bundle is unavailable for platform=${process.platform} arch=${process.arch}. Tried roots: ${attempted.join(", ") || "(none)"}. Missing soffice, pdfinfo or pdftoppm. Set MEMMY_OFFICE_RENDERING_ROOT (or the legacy MEMMY_DOCX_RENDERING_ROOT during migration) for a bundled parent directory, or MEMMY_DOCX_ALLOW_SYSTEM_RENDERER=1 only for development diagnostics.`,
   );
 }
 function rendererEnv(profile) {
