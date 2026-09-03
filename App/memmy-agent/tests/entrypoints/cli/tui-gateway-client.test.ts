@@ -120,7 +120,8 @@ async function connectClient({
 } = {}) {
   const sockets: FakeSocket[] = [];
   let bootstrapCount = 0;
-  const fetchImpl = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+  const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    void init;
     const url = String(input);
     if (url.endsWith("/webui/bootstrap")) {
       bootstrapCount += 1;
@@ -218,6 +219,60 @@ describe("TuiGatewayClient", () => {
     });
     expect(client.snapshot().messages.map((message) => message.text)).toEqual(["from TUI", "answer"]);
     expect(sockets).toHaveLength(1);
+    client.close();
+  });
+
+  it("clears hydrated transcript when an accepted TUI /new resets the Session", async () => {
+    const { client, sockets } = await connectClient({
+      historyMessages: [
+        { id: "user-old", role: "user", content: "old question" },
+        { id: "assistant-old", role: "assistant", content: "old answer" },
+      ],
+    });
+    const socket = sockets[0]!;
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const submission = client.submit("/new", "queue", requestId);
+    const queuedItem = {
+      client_request_id: requestId,
+      text: "/new",
+      queued_at: "2026-08-09T12:00:00.000Z",
+      source: { kind: "tui", channel: "websocket" },
+    };
+
+    socket.message({
+      event: "message_queued",
+      chat_id: client.chatId,
+      client_request_id: requestId,
+      revision: 1,
+      item: queuedItem,
+    });
+    await expect(submission).resolves.toMatchObject({ status: "queued" });
+    expect(client.snapshot().messages.map((message) => message.text)).toEqual(["old question", "old answer"]);
+
+    socket.message({
+      event: "message_dequeued",
+      chat_id: client.chatId,
+      client_request_id: requestId,
+      revision: 2,
+      item: queuedItem,
+    });
+    socket.message({
+      event: "message_accepted",
+      chat_id: client.chatId,
+      client_request_id: requestId,
+      turn_id: "turn-new",
+    });
+
+    expect(client.snapshot()).toMatchObject({ messages: [], sessionResetVersion: 1 });
+
+    socket.message({
+      event: "message",
+      chat_id: client.chatId,
+      text: "New session started.",
+      turn_id: "turn-new",
+      source: { kind: "tui", channel: "websocket" },
+    });
+    expect(client.snapshot().messages.map((message) => message.text)).toEqual(["New session started."]);
     client.close();
   });
 
