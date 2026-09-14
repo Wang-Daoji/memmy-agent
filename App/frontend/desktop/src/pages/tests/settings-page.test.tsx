@@ -26,6 +26,7 @@ import {
 import { formatMessage, zhCNMessages } from "../../i18n/messages.js";
 import {
   availableConnectionProtocols,
+  catalogProviderForEditor,
   editorProtocolForCapabilities,
   modelCapabilitiesForKind,
   normalizeEditorCapabilities,
@@ -73,6 +74,7 @@ describe("多 BYOK endpoint 入口", () => {
         endpointId: "openai-chat",
         endpoint: "https://api.openai.com/v1",
         protocol: "openai-chat-completions",
+        region: "",
         apiKeyMasked: "••••1234",
         models: ["gpt-4o"],
         modelEntries: [{ presetId: "preset-openai", model: "gpt-4o", capability: "chat", capabilities: ["agent"] }],
@@ -87,6 +89,7 @@ describe("多 BYOK endpoint 入口", () => {
         endpointId: "anthropic-chat",
         endpoint: "https://api.anthropic.com",
         protocol: "anthropic-messages",
+        region: "",
         apiKeyMasked: "••••5678",
         models: ["claude-sonnet-4"],
         modelEntries: [{ presetId: "preset-anthropic", model: "claude-sonnet-4", capability: "chat", capabilities: ["agent"] }],
@@ -98,8 +101,21 @@ describe("多 BYOK endpoint 入口", () => {
     ]);
 
     expect(available).toContain("openai");
+    expect(available).toContain("openai_responses");
+    expect(available).toContain("custom");
     expect(available).toContain("anthropic");
     expect(available[0]).toBe("openai");
+  });
+});
+
+describe("Custom 与 OpenAI Responses 的 catalog provider 推导", () => {
+  it("Custom 按底层协议落到 openai/anthropic/bedrock，而不是 custom", () => {
+    expect(catalogProviderForEditor("custom", "openai-chat-completions")).toBe("openai");
+    expect(catalogProviderForEditor("custom", "openai-responses")).toBe("openai");
+    expect(catalogProviderForEditor("custom", "anthropic-messages")).toBe("anthropic");
+    expect(catalogProviderForEditor("custom", "bedrock-converse")).toBe("bedrock");
+    expect(catalogProviderForEditor("openai_responses", null)).toBe("openai");
+    expect(catalogProviderForEditor("moonshot", null)).toBe("moonshot");
   });
 });
 
@@ -194,7 +210,8 @@ describe("自定义模型能力选择", () => {
     expect(source).toContain('className="select-control--subtle model-capability-select"');
     expect(source.match(/t\("settings\.modelWorkspace\.modelCapability"\)/g)).toHaveLength(1);
     expect(source).toContain("normalizeEditorCapabilities(entry.capabilities.map(fromCatalogCapability))");
-    expect(source).not.toContain('type="checkbox"');
+    expect(source).toContain("checked={editor.customThinkingEnabled}");
+    expect(source).toContain("checked={editor.customImageInput}");
     expect(source).not.toContain('t("settings.modelWorkspace.textRoles")');
     expect(source).not.toContain('t("settings.modelWorkspace.capability.agent")');
   });

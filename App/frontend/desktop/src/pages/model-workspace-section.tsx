@@ -2,7 +2,12 @@ import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, Database, I
 import {
   BUILTIN_LOCAL_EMBEDDING_ASSIGNMENT_ID,
   MODEL_NAME_MAX_LENGTH,
-  type ModelEndpointProtocol
+  THINKING_LEVELS,
+  defaultThinkingLevel,
+  type ModelEndpointProtocol,
+  type ModelThinkingConfig,
+  type ModelThinkingConfigDto,
+  type ThinkingLevel
 } from "@memmy/local-api-contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConfigClient, ModelProviderConfig } from "../api/config-client.js";
@@ -25,8 +30,10 @@ import {
   setDefaultTaskModel,
   setTaskModelCandidates,
   upsertModelConnection,
+  isCustomModelEntry,
   type ModelCapability,
   type ModelAssignmentKind,
+  type ModelCandidate,
   type ModelConnection,
   type ModelWorkspaceMode,
   type ModelWorkspaceMutationError
@@ -36,7 +43,7 @@ import {
   PasswordConfigField,
   TestButton as ApiKeyTestButton
 } from "./api-key-form-fields.js";
-import { DEFAULT_ENDPOINTS, DEFAULT_MODEL_IDS, PROTOCOL_OPTIONS, fromProtocol, type Protocol } from "./model-config.js";
+import { DEFAULT_ENDPOINTS, DEFAULT_MODEL_IDS, PROTOCOL_OPTIONS, CUSTOM_PROTOCOL_OPTIONS, fromProtocol, type CustomProtocol, type Protocol } from "./model-config.js";
 import {
   SETTINGS_ADD_MODEL_EVENT,
   SETTINGS_ADD_MODEL_RETURN_STORAGE_KEY,
@@ -77,6 +84,13 @@ interface ConnectionEditorState {
   provider: Protocol;
   endpoint: string;
   apiKey: string;
+  customProtocol: CustomProtocol | null;
+  region: string;
+  customThinkingEnabled: boolean;
+  customThinkingSwitchable: boolean;
+  customThinkingDefaultEnabled: boolean;
+  customThinkingLevels: string;
+  customImageInput: boolean;
   models: Array<{
     presetId?: string;
     name: string;
@@ -223,6 +237,13 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
       provider,
       endpoint: DEFAULT_ENDPOINTS[provider],
       apiKey: "",
+      customProtocol: provider === "custom" ? "openai-chat-completions" : null,
+      region: "",
+      customThinkingEnabled: false,
+      customThinkingSwitchable: true,
+      customThinkingDefaultEnabled: true,
+      customThinkingLevels: "",
+      customImageInput: false,
       models: [],
       modelDraft: DEFAULT_MODEL_IDS[provider],
       capabilityDrafts: [...DEFAULT_TEXT_CAPABILITIES],
@@ -269,7 +290,13 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
   }, [openAddConnection, props.autoOpenAddConnection]);
 
   function openEditConnection(connection: ModelConnection) {
-    const provider = protocolFromConnection(connection.provider);
+    const isCustom = connection.modelEntries[0]?.custom === true;
+    const provider: Protocol = isCustom
+      ? "custom"
+      : connection.protocol === "openai-responses"
+        ? "openai_responses"
+        : protocolFromConnection(connection.provider);
+    const thinking = connection.modelEntries[0]?.thinking;
     const savedTest = connectionTestState(connection, testStates);
     setFormError(null);
     setEditorTest(savedTest
@@ -281,6 +308,13 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
       provider,
       endpoint: connection.endpoint,
       apiKey: "",
+      customProtocol: isCustom ? connection.protocol as CustomProtocol : null,
+      region: connection.region ?? "",
+      customThinkingEnabled: Boolean(thinking),
+      customThinkingSwitchable: thinking?.switchable ?? true,
+      customThinkingDefaultEnabled: thinking?.defaultEnabled ?? true,
+      customThinkingLevels: thinking?.levels.join(",") ?? "",
+      customImageInput: connection.modelEntries[0]?.inputModalities?.includes("image") === true,
       models: connection.modelEntries.map((entry) => ({
         presetId: entry.presetId,
         name: entry.model,
@@ -337,18 +371,40 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
       ? space.connections.find((connection) => connection.id === editor.connectionId)
       : undefined;
     const providerChanged = Boolean(
-      existing && protocolFromConnection(existing.provider) !== editor.provider
+      existing && editorIdentity(existing) !== editor.provider
     );
     const capabilities = resolved.models.flatMap((model) => model.capabilities);
-    const result = upsertModelConnection(workspace, props.mode, {
-      id: editor.connectionId ?? undefined,
-      provider: editor.provider,
-      endpoint: editor.endpoint,
-      protocol: editorProtocolForCapabilities(
+    const catalogProvider = catalogProviderForEditor(editor.provider, editor.customProtocol);
+    const protocol = editor.provider === "custom" && editor.customProtocol
+      ? editor.customProtocol
+      : editorProtocolForCapabilities(
         editor.provider,
         capabilities,
         providerChanged ? undefined : existing?.protocol
-      ),
+      );
+    const levels = editor.customThinkingLevels
+      .split(",")
+      .map((level) => level.trim())
+      .filter((level): level is ThinkingLevel => THINKING_LEVELS.includes(level as ThinkingLevel));
+    const customThinkingConfig: ModelThinkingConfigDto | null = editor.provider === "custom" && editor.customThinkingEnabled
+      ? {
+          switchable: editor.customThinkingSwitchable,
+          defaultEnabled: editor.customThinkingSwitchable
+            ? editor.customThinkingDefaultEnabled
+            : true,
+          levels: [...levels],
+          defaultLevel: defaultThinkingLevel(levels)
+        }
+      : null;
+    const inputModalities = editor.provider === "custom"
+      ? (editor.customImageInput ? ["text", "image"] as const : ["text"] as const)
+      : undefined;
+    const result = upsertModelConnection(workspace, props.mode, {
+      id: editor.connectionId ?? undefined,
+      provider: catalogProvider,
+      endpoint: editor.endpoint,
+      protocol,
+      region: editor.customProtocol === "bedrock-converse" ? editor.region : undefined,
       apiKey: editor.apiKey || undefined,
       apiKeyMasked: providerChanged ? undefined : existing?.apiKeyMasked,
       models: resolved.models.map((model) => model.name),
@@ -356,7 +412,12 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
         ...(model.presetId ? { presetId: model.presetId } : {}),
         model: model.name,
         capability: model.capabilities[0]!,
-        capabilities: model.capabilities
+        capabilities: model.capabilities,
+        ...(editor.provider === "custom" ? {
+          custom: true,
+          thinking: customThinkingConfig,
+          inputModalities: [...inputModalities!]
+        } : {})
       })),
       modelCapabilities: Object.fromEntries(
         resolved.models.map((model) => [model.name, model.capabilities[0]!])
@@ -370,7 +431,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
       connection.id === editor.connectionId
       || (
         editor.connectionId === null
-        && protocolFromConnection(connection.provider) === editor.provider
+        && connection.provider === catalogProvider
         && connection.endpoint === editor.endpoint.trim().replace(/\/+$/, "")
         && resolved.models.every((model) => connection.modelEntries.some((entry) => (
           entry.model === model.name
@@ -555,7 +616,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
       ? space.connections.find((connection) => connection.id === editor.connectionId)
       : undefined;
     const providerChanged = Boolean(
-      existing && protocolFromConnection(existing.provider) !== editor.provider
+      existing && editorIdentity(existing) !== editor.provider
     );
     if (!editor.apiKey.trim() && (!existing?.apiKeyMasked || providerChanged)) {
       setEditorTest({ status: "error", message: t("settings.modelWorkspace.testKeyRequired") });
@@ -565,9 +626,11 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
     try {
       const result = props.configClient
         ? await props.configClient.testModelConfig({
-          provider: fromProtocol(editor.provider),
+          provider: catalogProviderForEditor(editor.provider, editor.customProtocol),
           endpointId: existing?.endpointId ?? editor.connectionId ?? "connection-test-new",
-          protocol: editorProtocolForCapabilities(
+          protocol: editor.provider === "custom" && editor.customProtocol
+            ? editor.customProtocol
+            : editorProtocolForCapabilities(
             editor.provider,
             selectedModel.capabilities,
             providerChanged ? undefined : existing?.protocol
@@ -576,7 +639,8 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
             model: selectedModel.name,
             apiKey: editor.apiKey,
             apiKeyMasked: providerChanged ? "" : existing?.apiKeyMasked ?? "",
-            configured: true
+            configured: true,
+            ...(editor.customProtocol === "bedrock-converse" && editor.region ? { region: editor.region } : {})
           }, testCapability(selectedModel.capabilities[0]!), testSecretTarget(selectedModel.capabilities[0]!))
         : await simulateConnectionTest();
       setEditorTest({
@@ -608,7 +672,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
 
   const memorySummaryOptions = memorySummaryCandidates.map((candidate) => candidateOption(
     candidate.id,
-    candidate.source === "platform" ? t("settings.modelWorkspace.platformName") : connectionProtocolLabel(candidate.provider, t),
+    candidate.source === "platform" ? t("settings.modelWorkspace.platformName") : connectionProtocolLabel(candidate.provider, t, identityForCandidate(workspace, candidate)),
     candidate.source === "platform" ? platformModelName(candidate.capability, t) : candidate.model,
     candidate.source === "platform" ? t("settings.modelWorkspace.platformModels") : t("settings.modelWorkspace.byokConnections"),
     candidate.source,
@@ -616,7 +680,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
   ));
   const memoryEvolutionOptions = memoryEvolutionCandidates.map((candidate) => candidateOption(
     candidate.id,
-    candidate.source === "platform" ? t("settings.modelWorkspace.platformName") : connectionProtocolLabel(candidate.provider, t),
+    candidate.source === "platform" ? t("settings.modelWorkspace.platformName") : connectionProtocolLabel(candidate.provider, t, identityForCandidate(workspace, candidate)),
     candidate.source === "platform" ? platformModelName(candidate.capability, t) : candidate.model,
     candidate.source === "platform" ? t("settings.modelWorkspace.platformModels") : t("settings.modelWorkspace.byokConnections"),
     candidate.source,
@@ -626,7 +690,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
     .filter((candidate) => candidate.source === "byok")
     .map((candidate) => candidateOption(
       candidate.id,
-      connectionProtocolLabel(candidate.provider, t),
+      connectionProtocolLabel(candidate.provider, t, identityForCandidate(workspace, candidate)),
       candidate.model,
       t("settings.modelWorkspace.byokConnections"),
       candidate.source,
@@ -647,7 +711,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
     candidate.id,
     candidate.source === "platform"
       ? t("settings.modelWorkspace.platformName")
-      : connectionProtocolLabel(candidate.provider, t),
+      : connectionProtocolLabel(candidate.provider, t, identityForCandidate(workspace, candidate)),
     candidate.source === "platform" ? platformModelName(candidate.capability, t) : candidate.model,
     candidate.source === "platform"
       ? t("settings.modelWorkspace.platformModels")
@@ -659,7 +723,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
     candidate.id,
     candidate.source === "platform"
       ? t("settings.modelWorkspace.platformName")
-      : connectionProtocolLabel(candidate.provider, t),
+      : connectionProtocolLabel(candidate.provider, t, identityForCandidate(workspace, candidate)),
     candidate.source === "platform" ? platformModelName(candidate.capability, t) : candidate.model,
     candidate.source === "platform"
       ? t("settings.modelWorkspace.platformModels")
@@ -684,7 +748,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
     ? space.connections.find((connection) => connection.id === editor.connectionId)
     : undefined;
   const editorOriginalProvider = editorExistingConnection
-    ? protocolFromConnection(editorExistingConnection.provider)
+    ? editorIdentity(editorExistingConnection)
     : null;
   const editorProviderChanged = Boolean(
     editor && editorOriginalProvider && editor.provider !== editorOriginalProvider
@@ -798,7 +862,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
                   <div className="min-w-0">
                     <h4 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-text-ink/80">
                       <ModelProviderLogo provider={connection.provider} size={16} />
-                      <span className="truncate">{connectionProtocolLabel(connection.provider, t)}</span>
+                      <span className="truncate">{connectionProtocolLabel(connection.provider, t, editorIdentity(connection))}</span>
                     </h4>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -833,7 +897,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
                       />
                 ) : (
                   <p className="mt-2 text-xs text-text-ink/45">
-                    {connectionProtocolLabel(connection.provider, t)} · {t("settings.modelWorkspace.modelCount", {
+                    {connectionProtocolLabel(connection.provider, t, editorIdentity(connection))} · {t("settings.modelWorkspace.modelCount", {
                       count: connection.models.length
                     })}
                   </p>
@@ -934,7 +998,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
                           <span className="shrink-0 text-[10px] text-text-ink/40">
                             {candidate.source === "platform"
                               ? t("settings.modelWorkspace.platformName")
-                              : connectionProtocolLabel(candidate.provider, t)}
+                              : connectionProtocolLabel(candidate.provider, t, identityForCandidate(workspace, candidate))}
                           </span>
                           </button>
                           {selected && (
@@ -1063,6 +1127,8 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
                 provider,
                 endpoint: DEFAULT_ENDPOINTS[provider],
                 apiKey: "",
+                customProtocol: provider === "custom" ? current.customProtocol ?? "openai-chat-completions" : null,
+                region: provider === "custom" ? current.region : "",
                 ...(current.connectionId
                   ? {}
                   : {
@@ -1086,6 +1152,83 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
             className="select-control--subtle model-connection-select"
             labelClassName="model-connection-select__label"
           />
+          {editor.provider === "custom" && (
+            <>
+              <Select
+                label={t("settings.modelWorkspace.customProtocol")}
+                value={editor.customProtocol ?? "openai-chat-completions"}
+                onValueChange={(value) => setEditor((prev) => prev ? { ...prev, customProtocol: value as CustomProtocol } : null)}
+                className="select-control--subtle"
+                options={CUSTOM_PROTOCOL_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(option.labelKey)
+                }))}
+              />
+              {editor.customProtocol === "bedrock-converse" && (
+                <ConfigField
+                  label={t("settings.modelWorkspace.region")}
+                  value={editor.region}
+                  onChange={(region) => setEditor((prev) => prev ? { ...prev, region } : prev)}
+                  placeholder={t("settings.modelWorkspace.regionPlaceholder")}
+                />
+              )}
+              <div className="custom-thinking-config">
+                <label className="custom-thinking-config__label">
+                  <input
+                    type="checkbox"
+                    checked={editor.customThinkingEnabled}
+                    onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingEnabled: event.target.checked } : null)}
+                  />
+                  {t("settings.modelWorkspace.customThinkingEnabled")}
+                </label>
+                {editor.customThinkingEnabled && (
+                  <>
+                    <label className="custom-thinking-config__label">
+                      <input
+                        type="checkbox"
+                        checked={editor.customThinkingSwitchable}
+                        onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingSwitchable: event.target.checked } : null)}
+                      />
+                      {t("settings.modelWorkspace.customThinkingSwitchable")}
+                    </label>
+                    {editor.customThinkingSwitchable && (
+                      <label className="custom-thinking-config__label">
+                        <input
+                          type="checkbox"
+                          checked={editor.customThinkingDefaultEnabled}
+                          onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingDefaultEnabled: event.target.checked } : null)}
+                        />
+                        {t("settings.modelWorkspace.customThinkingDefaultEnabled")}
+                      </label>
+                    )}
+                    <div className="custom-thinking-levels">
+                      <label className="custom-thinking-levels__label">
+                        {t("settings.modelWorkspace.customThinkingLevels")}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={t("settings.modelWorkspace.customThinkingLevelsPlaceholder")}
+                        value={editor.customThinkingLevels}
+                        onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingLevels: event.target.value } : null)}
+                        className="custom-thinking-levels__input"
+                      />
+                      <p className="custom-thinking-levels__hint">
+                        {t("settings.modelWorkspace.customThinkingLevelsHint")}
+                      </p>
+                    </div>
+                  </>
+                )}
+                <label className="custom-thinking-config__label">
+                  <input
+                    type="checkbox"
+                    checked={editor.customImageInput}
+                    onChange={(event) => setEditor((prev) => prev ? { ...prev, customImageInput: event.target.checked } : null)}
+                  />
+                  {t("settings.modelWorkspace.customImageInput")}
+                </label>
+              </div>
+            </>
+          )}
           <ConfigField
             label={t("apiKey.endpoint")}
             value={editor.endpoint}
@@ -1231,7 +1374,7 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
         open={Boolean(deleteTarget)}
         title={t("settings.modelWorkspace.deleteTitle")}
         message={t("settings.modelWorkspace.deleteConfirm", {
-          provider: deleteTarget ? connectionProtocolLabel(deleteTarget.provider, t) : ""
+          provider: deleteTarget ? connectionProtocolLabel(deleteTarget.provider, t, editorIdentity(deleteTarget)) : ""
         })}
         cancelLabel={t("common.cancel")}
         closeLabel={t("common.close")}
@@ -1449,11 +1592,23 @@ function candidateOption(
 
 function connectionProtocolLabel(
   provider: string,
-  t: ReturnType<typeof useTranslation>["t"]
+  t: ReturnType<typeof useTranslation>["t"],
+  identity?: Protocol
 ): string {
-  const protocol = protocolFromConnection(provider);
+  const protocol = identity ?? protocolFromConnection(provider);
   const option = PROTOCOL_OPTIONS.find((item) => item.value === protocol);
   return option ? t(option.labelKey) : provider;
+}
+
+function identityForCandidate(
+  workspace: ReturnType<typeof createModelWorkspace>,
+  candidate: ModelCandidate
+): Protocol | undefined {
+  if (candidate.source !== "byok" || !candidate.connectionId) return undefined;
+  const connection = workspace.spaces.byok.connections.find((item) => item.id === candidate.connectionId)
+    ?? workspace.spaces.account.connections.find((item) => item.id === candidate.connectionId);
+  if (!connection) return isCustomModelEntry(workspace, candidate) ? "custom" : undefined;
+  return editorIdentity(connection);
 }
 
 export function protocolFromConnection(provider: string): Protocol {
@@ -1466,10 +1621,27 @@ export function protocolFromConnection(provider: string): Protocol {
   return "openai";
 }
 
+export function catalogProviderForEditor(provider: Protocol, customProtocol: CustomProtocol | null): string {
+  if (provider === "custom") {
+    if (customProtocol === "anthropic-messages") return "anthropic";
+    if (customProtocol === "bedrock-converse") return "bedrock";
+    return "openai";
+  }
+  if (provider === "openai_responses") return "openai";
+  return fromProtocol(provider) === "kimi" ? "moonshot" : fromProtocol(provider);
+}
+
+function editorIdentity(connection: ModelConnection): Protocol {
+  if (connection.modelEntries[0]?.custom === true) return "custom";
+  if (connection.protocol === "openai-responses") return "openai_responses";
+  return protocolFromConnection(connection.provider);
+}
+
 function protocolForEditor(provider: Protocol, capability: ModelCapability): ModelEndpointProtocol {
   if (capability === "embedding") return "openai-embeddings";
   if (capability === "asr") return "dashscope-input-audio-chat";
   if (capability === "image") return provider === "qwen" ? "dashscope-multimodal-generation" : "openai-images";
+  if (provider === "openai_responses") return "openai-responses";
   if (provider === "anthropic") return "anthropic-messages";
   if (provider === "gemini") return "gemini-generate-content";
   return "openai-chat-completions";

@@ -157,7 +157,7 @@ describe("ModelWorkspaceSection BYOK connection deletion", () => {
       .toEqual([
         "Memmy Platform 本地 Embedding",
         "Memmy Platform 云端 Embedding",
-        "OpenAI 兼容 · text-embedding-3-small"
+        "OpenAI Completions · text-embedding-3-small"
       ]);
   });
 

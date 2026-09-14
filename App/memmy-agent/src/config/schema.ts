@@ -97,7 +97,8 @@ export type ModelEndpointProtocol =
   | "dashscope-input-audio-chat"
   | "openai-images"
   | "dashscope-multimodal-generation"
-  | "memmy-account";
+  | "memmy-account"
+  | "bedrock-converse";
 
 const MODEL_CAPABILITIES = ["agent", "memory_summary", "memory_evolution", "embedding", "asr", "image_generation"] as const;
 const TEXT_GENERATION_CAPABILITIES: ReadonlySet<ModelCapability> = new Set([
@@ -106,7 +107,7 @@ const TEXT_GENERATION_CAPABILITIES: ReadonlySet<ModelCapability> = new Set([
 const ENDPOINT_PROTOCOLS = [
   "openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content",
   "openai-embeddings", "dashscope-input-audio-chat", "openai-images",
-  "dashscope-multimodal-generation", "memmy-account",
+  "dashscope-multimodal-generation", "memmy-account", "bedrock-converse",
 ] as const;
 
 export class Base {
@@ -234,6 +235,7 @@ export class ModelPresetConfig extends Base {
   contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS;
   temperature = 0.7;
   reasoningEffort: string | null = null;
+  inputModalities: readonly string[] | null = null;
 
   constructor(init: Dict) {
     super(init);
@@ -262,6 +264,9 @@ export class ModelPresetConfig extends Base {
     );
     this.temperature = pick(init, ["temperature"], 0.7);
     this.reasoningEffort = pick(init, ["reasoningEffort"], null);
+    this.inputModalities = Array.isArray(init.inputModalities)
+      ? Object.freeze([...init.inputModalities.filter((item: unknown) => typeof item === "string")])
+      : null;
     if (this.source === "account" && !optionalString(this.ownerAccountId)) {
       throw new ValueError("account modelPreset ownerAccountId is required");
     }
@@ -282,6 +287,7 @@ export class ModelPresetConfig extends Base {
     return omitUndefined({
       ...this,
       ownerAccountId: this.ownerAccountId ?? undefined,
+      inputModalities: this.inputModalities ?? undefined,
     });
   }
 }
@@ -591,6 +597,7 @@ export class ProviderConfig extends Base {
   private chatEndpoint(): ModelEndpointConfig | null {
     return Object.values(this.endpoints).find((endpoint) => [
       "openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account",
+      "bedrock-converse",
     ].includes(endpoint.protocol)) ?? null;
   }
 
@@ -612,6 +619,8 @@ export class ModelEndpointConfig extends Base {
   apiKey: string | null;
   extraHeaders: Dict<string> | null;
   extraBody: Dict | null;
+  region: string | null;
+  profile: string | null;
 
   constructor(init: Dict = {}) {
     for (const legacy of ["api_key", "api_base", "api_type", "extra_headers", "extra_body"]) {
@@ -625,6 +634,8 @@ export class ModelEndpointConfig extends Base {
     this.apiKey = pick(init, ["apiKey"], null);
     this.extraHeaders = pick(init, ["extraHeaders"], null);
     this.extraBody = pick(init, ["extraBody"], null);
+    this.region = pick(init, ["region"], null);
+    this.profile = pick(init, ["profile"], null);
   }
 
   override toObject(): Dict {
@@ -633,6 +644,8 @@ export class ModelEndpointConfig extends Base {
       apiKey: this.apiKey ?? undefined,
       extraHeaders: this.extraHeaders ?? undefined,
       extraBody: this.extraBody ?? undefined,
+      region: this.region ?? undefined,
+      profile: this.profile ?? undefined,
     });
   }
 }
@@ -1292,6 +1305,7 @@ export class Config extends Base {
   private validateModelCatalog(): void {
     const textProtocols = new Set<ModelEndpointProtocol>([
       "openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account",
+      "bedrock-converse",
     ]);
     const protocolsByCapability: Readonly<Record<ModelCapability, ReadonlySet<ModelEndpointProtocol>>> = {
       agent: textProtocols,

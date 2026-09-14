@@ -27,7 +27,9 @@ import {
   setModelAssignment,
   setTaskModelCandidates,
   upsertByokPreset,
-  upsertModelConnection
+  upsertModelConnection,
+  isCustomModelEntry,
+  resolveThinkingConfigForModel
 } from "../model-workspace.js";
 
 const fixtureRoots: string[] = [];
@@ -953,5 +955,58 @@ describe("canonical model workspace adapter", () => {
     expect(serialized).not.toContain("label");
     expect(serialized).not.toContain("maxTokens");
     expect(serialized).not.toContain("dailyTokenLimit");
+  });
+
+  it("Custom 连接保存思考配置、图片声明与 region，重开后仍在", async () => {
+    const file = catalogFixture();
+    const empty = await readModelConfigCatalog(file);
+    const created = upsertModelConnection(createModelWorkspace(empty), "byok", {
+      provider: "bedrock",
+      endpoint: "https://bedrock-runtime.us-west-2.amazonaws.com",
+      protocol: "bedrock-converse",
+      region: "us-west-2",
+      apiKey: "sk-bedrock",
+      models: ["anthropic.claude-sonnet-5"],
+      modelEntries: [{
+        model: "anthropic.claude-sonnet-5",
+        capability: "chat",
+        capabilities: ["chat", "memorySummary", "memoryEvolution"],
+        custom: true,
+        thinking: {
+          switchable: true,
+          defaultEnabled: true,
+          levels: ["low", "medium", "high"],
+          defaultLevel: "medium"
+        },
+        inputModalities: ["text", "image"]
+      }]
+    });
+    expect(created.error).toBeNull();
+
+    const saved = await persistModelCatalogMutation(modelConfigInput(created.workspace), {
+      read: () => readModelConfigCatalog(file),
+      write: (input) => writeModelConfigCatalog(file, input)
+    });
+    const reloaded = createModelWorkspace(saved);
+    const connection = reloaded.spaces.byok.connections.find((item) => item.provider === "bedrock")!;
+    const entry = connection.modelEntries[0]!;
+    const candidate = getTaskModelCandidates(reloaded, "byok").find((item) => item.model === "anthropic.claude-sonnet-5")!;
+
+    expect(connection.protocol).toBe("bedrock-converse");
+    expect(connection.region).toBe("us-west-2");
+    expect(entry.custom).toBe(true);
+    expect(entry.thinking).toEqual({
+      switchable: true,
+      defaultEnabled: true,
+      levels: ["low", "medium", "high"],
+      defaultLevel: "medium"
+    });
+    expect(entry.inputModalities).toEqual(["text", "image"]);
+    expect(isCustomModelEntry(reloaded, candidate)).toBe(true);
+    expect(resolveThinkingConfigForModel(reloaded, candidate)).toEqual(entry.thinking);
+    expect(saved.providers.find((provider) => provider.provider === "bedrock")?.models[0]).toMatchObject({
+      custom: true,
+      inputModalities: ["text", "image"]
+    });
   });
 });

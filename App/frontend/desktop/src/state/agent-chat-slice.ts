@@ -42,6 +42,13 @@ import {
   type AgentToolProgressEvent
 } from "./agent-tool-traces.js";
 
+export interface AgentThinkingState {
+  enabled?: boolean;
+  level?: string;
+}
+
+export const NEW_TASK_MODEL_SCOPE_KEY = "draft-new-task";
+
 export type AgentConnectionStatus = "idle" | "bootstrapping" | "connecting" | "connected" | "reconnecting" | "error";
 export type AgentOperationSurface = "chat" | "sidebar";
 export type AgentOperationErrorSource = "sessions" | "sidebar" | "history" | "new-chat" | "send" | "gateway-command" | "recovery" | "queue";
@@ -191,6 +198,7 @@ export interface AgentState {
     chatId: string | null;
     presetId: string | null;
   }>;
+  thinkingStateByScope: Record<string, AgentThinkingState>;
   chatViewVisible: boolean;
   currentChatId: string | null;
   currentSessionKey: string | null;
@@ -263,6 +271,8 @@ export type AgentAction =
   | { type: "agent/pendingModelPresetCleared"; scopeKey: string }
   | { type: "agent/modelSelectionRequestStarted"; scopeKey: string; chatId: string | null; clientRequestId: string; presetId: string | null }
   | { type: "agent/modelSelectionRequestCancelled"; clientRequestId: string }
+  | { type: "agent/thinkingToggled"; scopeKey: string; enabled: boolean }
+  | { type: "agent/thinkingLevelChanged"; scopeKey: string; level: string }
   | { type: "agent/connectionConnecting" }
   | { type: "agent/connectionFailed"; message: string }
   | { type: "agent/connectionDisposed" }
@@ -352,6 +362,7 @@ export const initialAgentState: AgentState = {
   committedModelSelectionByScope: {},
   pendingPresetByScope: {},
   pendingModelCommitByRequestId: {},
+  thinkingStateByScope: {},
   chatViewVisible: false,
   currentChatId: null,
   currentSessionKey: null,
@@ -455,6 +466,28 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
           state.pendingModelCommitByRequestId,
           action.clientRequestId
         )
+      };
+    case "agent/thinkingToggled":
+      return {
+        ...state,
+        thinkingStateByScope: {
+          ...state.thinkingStateByScope,
+          [action.scopeKey]: {
+            ...state.thinkingStateByScope[action.scopeKey],
+            enabled: action.enabled
+          }
+        }
+      };
+    case "agent/thinkingLevelChanged":
+      return {
+        ...state,
+        thinkingStateByScope: {
+          ...state.thinkingStateByScope,
+          [action.scopeKey]: {
+            ...state.thinkingStateByScope[action.scopeKey],
+            level: action.level
+          }
+        }
       };
     case "agent/connectionConnecting":
       return { ...state, connectionStatus: "connecting", connectionError: null };
@@ -1560,9 +1593,17 @@ function completeSessionsLoad(state: AgentState, sessions: MemmyAgentSessionSumm
 
   const canonicalChatIds = new Set(sessions.map((session) => sessionKeyToChatId(session.key)));
   const committedModelSelectionByScope = { ...state.committedModelSelectionByScope };
+  const thinkingStateByScope = { ...state.thinkingStateByScope };
   for (const session of sessions) {
     const chatId = sessionKeyToChatId(session.key);
     committedModelSelectionByScope[chatId] = session.model_selection ?? null;
+    const restored: AgentThinkingState = {
+      ...(typeof session.thinking_enabled === "boolean" ? { enabled: session.thinking_enabled } : {}),
+      ...(typeof session.thinking_level === "string" ? { level: session.thinking_level } : {})
+    };
+    if (Object.keys(restored).length) {
+      thinkingStateByScope[chatId] = { ...thinkingStateByScope[chatId], ...restored };
+    }
   }
   const optimisticTasksByChatId = pruneOptimisticTasks(state.optimisticTasksByChatId, canonicalChatIds);
   const queuedMessagesByChatId = pruneChatMap(
@@ -1597,6 +1638,10 @@ function completeSessionsLoad(state: AgentState, sessions: MemmyAgentSessionSumm
     ...state,
     sessions,
     committedModelSelectionByScope,
+    thinkingStateByScope: pruneChatMap(
+      thinkingStateByScope,
+      new Set([...canonicalChatIds, NEW_TASK_MODEL_SCOPE_KEY])
+    ),
     optimisticTasksByChatId,
     queuedMessagesByChatId,
     queueRevisionByChatId,

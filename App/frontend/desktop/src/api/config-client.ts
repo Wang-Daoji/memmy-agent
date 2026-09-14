@@ -55,6 +55,7 @@ export interface ModelProviderConfig {
   provider: string;
   endpointId?: string;
   protocol?: ModelEndpointProtocol;
+  region?: string;
   endpoint: string;
   model: string;
   apiKey: string;
@@ -270,7 +271,8 @@ export function createHttpConfigClient(config: RuntimeConfig): ConfigClient {
           modelId: modelConfig.model,
           apiKey: modelConfig.apiKey || undefined,
           capability,
-          secretTarget
+          secretTarget,
+          ...(modelConfig.region ? { region: modelConfig.region } : {})
         })
       });
     },
@@ -821,11 +823,32 @@ function fromOptionalPreset(view: ModelConfigView, preset: ModelConfigView["prov
 }
 
 function toModelProvider(provider: string): ModelProvider {
-  if (provider === "openai") {
+  if (provider === "openai" || provider === "openai_responses") {
     return "openai_compatible";
   }
+  if (provider === "bedrock") {
+    return "anthropic";
+  }
+  if (provider === "gemini") {
+    return "google";
+  }
+  if (provider === "moonshot") {
+    return "kimi";
+  }
+  if (provider === "dashscope") {
+    return "qwen";
+  }
+  if (provider === "qianfan") {
+    return "baidu";
+  }
+  if (provider === "volcengine") {
+    return "doubao";
+  }
+  if (provider === "xiaomi_mimo") {
+    return "xiaomi";
+  }
 
-  return provider === "gemini" ? "google" : (provider as ModelProvider);
+  return provider as ModelProvider;
 }
 function toCatalogInput(config: ModelConfigInput | ModelConfigView): ModelConfigInput {
   if (!("configured" in config)) {
@@ -841,7 +864,8 @@ function toCatalogInput(config: ModelConfigInput | ModelConfigView): ModelConfig
         endpointId: endpoint.endpointId,
         apiBase: endpoint.apiBase,
         protocol: endpoint.protocol,
-        ...(endpoint.apiKey ? { apiKey: endpoint.apiKey } : {})
+        ...(endpoint.apiKey ? { apiKey: endpoint.apiKey } : {}),
+        ...(endpoint.region ? { region: endpoint.region } : {})
       })),
       models: provider.models.map((model) => ({
         ...(model.presetId ? { presetId: model.presetId } : {}),
@@ -849,7 +873,10 @@ function toCatalogInput(config: ModelConfigInput | ModelConfigView): ModelConfig
         model: model.model,
         source: model.source,
         ...(model.ownerAccountId ? { ownerAccountId: model.ownerAccountId } : {}),
-        capabilities: [...model.capabilities]
+        capabilities: [...model.capabilities],
+        ...(model.thinking ? { thinking: model.thinking } : {}),
+        ...(model.custom ? { custom: true } : {}),
+        ...(model.inputModalities ? { inputModalities: [...model.inputModalities] } : {})
       }))
     })),
     modelAssignments: structuredClone(config.modelAssignments)

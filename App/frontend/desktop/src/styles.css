@@ -861,6 +861,172 @@ body.memmy-window-fullscreen {
   transition: background var(--duration-fast), color var(--duration-fast);
 }
 
+.agent-model-selector-with-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-thinking-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-text-ink) 48%, transparent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.thinking-toggle:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-canvas-oat) 64%, transparent);
+  color: color-mix(in srgb, var(--color-text-ink) 78%, transparent);
+}
+
+.thinking-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.thinking-toggle--on {
+  color: var(--color-action-sky);
+}
+
+.thinking-toggle__switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  background: color-mix(in srgb, var(--color-text-ink) 18%, transparent);
+  border-radius: 999px;
+}
+
+.thinking-toggle__switch--on {
+  background: var(--color-action-sky);
+}
+
+.thinking-toggle__switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--duration-fast);
+}
+
+.thinking-toggle__switch--on .thinking-toggle__switch-thumb {
+  transform: translateX(12px);
+}
+
+.thinking-level-trigger-container {
+  position: relative;
+}
+
+.thinking-level-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-text-ink) 48%, transparent);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.thinking-level-trigger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-canvas-oat) 64%, transparent);
+  color: color-mix(in srgb, var(--color-text-ink) 78%, transparent);
+}
+
+.thinking-level-picker {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 130;
+  min-width: 160px;
+  background: var(--color-background-paper, #fff);
+  border: 1px solid color-mix(in srgb, var(--color-text-ink) 12%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-text-ink) 12%, transparent);
+}
+
+.thinking-level-picker__header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text-ink) 55%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text-ink) 10%, transparent);
+}
+
+.thinking-level-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.thinking-level-option:hover {
+  background: color-mix(in srgb, var(--color-canvas-oat) 64%, transparent);
+}
+
+.thinking-level-option--selected {
+  color: var(--color-action-sky);
+  font-weight: 500;
+}
+
+.custom-thinking-config {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-text-ink) 12%, transparent);
+  border-radius: 8px;
+}
+
+.custom-thinking-config__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.custom-thinking-levels {
+  display: grid;
+  gap: 6px;
+}
+
+.custom-thinking-levels__input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-text-ink) 12%, transparent);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.custom-thinking-levels__hint {
+  margin: 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text-ink) 55%, transparent);
+}
+
 .agent-model-selector {
   position: relative;
   z-index: 50;

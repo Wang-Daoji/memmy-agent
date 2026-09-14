@@ -24,6 +24,7 @@ import {
   type ModelSelectionInput,
   type ResolvedModelSelection,
 } from "../../providers/model-catalog.js";
+import { getModelThinkingConfig } from "@memmy/local-api-contracts";
 import type { ProviderErrorCategory } from "../../providers/provider-error-classifier.js";
 
 type UserFacingModelErrorCategory = ProviderErrorCategory | "model_failed";
@@ -690,6 +691,27 @@ export class SessionWorkspaceError extends Error {
     this.name = "SessionWorkspaceError";
     this.code = code;
   }
+}
+
+function thinkingFieldsFromMetadata(metadata: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  return {
+    ...(typeof metadata?.thinking_enabled === "boolean" ? { thinking_enabled: metadata.thinking_enabled } : {}),
+    ...(typeof metadata?.thinking_level === "string" ? { thinking_level: metadata.thinking_level } : {}),
+  };
+}
+
+export function reasoningEffortFromTurnMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+  model: string | null | undefined,
+): string | undefined {
+  if (typeof metadata?.thinking_enabled !== "boolean") return undefined;
+  const config = getModelThinkingConfig(model);
+  const enabled = config && !config.switchable ? true : metadata.thinking_enabled;
+  if (!enabled) return "none";
+  if (typeof metadata.thinking_level === "string" && metadata.thinking_level.trim()) {
+    return metadata.thinking_level;
+  }
+  return "medium";
 }
 
 export class AgentLoop {
@@ -3550,7 +3572,9 @@ export class AgentLoop {
         maxIterationsFinalPrompt: renderTemplate("agent/max-iterations-final-response.md", { strip: true }),
         maxTokens: activeProvider?.generation?.maxTokens ?? this.config.agents.defaults.maxTokens,
         temperature: activeProvider?.generation?.temperature ?? this.config.agents.defaults.temperature,
-        reasoningEffort: activeProvider?.generation?.reasoningEffort ?? this.config.agents.defaults.reasoningEffort,
+        reasoningEffort: reasoningEffortFromTurnMetadata(metadata, activeModel)
+          ?? activeProvider?.generation?.reasoningEffort
+          ?? this.config.agents.defaults.reasoningEffort,
         maxToolResultChars: this.maxToolResultChars,
         toolResultMaxCharsByName: SESSION_TOOL_RESULT_MAX_CHARS_BY_NAME,
         workspace: sessionWorkspace,
@@ -3710,6 +3734,7 @@ export class AgentLoop {
             model_provider: modelSelection.provider,
             model: modelSelection.model,
             model_selection: modelSelectionWire(modelSelection),
+            ...thinkingFieldsFromMetadata(msg.metadata),
           }
         : { ...(msg.metadata ?? {}) },
       sessionKey: ctx.sessionKey,
@@ -3734,6 +3759,7 @@ export class AgentLoop {
     }
     ctx.session.metadata.modelPreset = modelSelection.preset;
     ctx.session.metadata.modelSelection = persistedModelSelection(modelSelection);
+    Object.assign(ctx.session.metadata, thinkingFieldsFromMetadata(msg.metadata));
     const projectedBinding = this.guiTranscriptMirror?.prepareSession(
       msg,
       ctx.session,
@@ -4301,6 +4327,7 @@ export class AgentLoop {
             model_provider: modelSelection.provider,
             model: modelSelection.model,
             model_selection: modelSelectionWire(modelSelection),
+            ...thinkingFieldsFromMetadata(msg.metadata),
           }
         : { ...(msg.metadata ?? {}) },
       sessionKey: key,
@@ -4314,6 +4341,7 @@ export class AgentLoop {
     let session = existingSession ?? await this.getOrCreateSession(key);
     session.metadata.modelPreset = modelSelection.preset;
     session.metadata.modelSelection = persistedModelSelection(modelSelection);
+    Object.assign(session.metadata, thinkingFieldsFromMetadata(msg.metadata));
     const sessionBinding = this.resolveSessionWorkspace(
       msg,
       session,

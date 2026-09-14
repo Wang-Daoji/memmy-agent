@@ -27,9 +27,9 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 type ConfigRecord = Record<string, unknown>;
 
 const CAPABILITY_PROTOCOLS: Readonly<Record<ModelCapability, ReadonlySet<ModelEndpointProtocol>>> = {
-  agent: new Set(["openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account"]),
-  memory_summary: new Set(["openai-chat-completions", "anthropic-messages", "gemini-generate-content", "memmy-account"]),
-  memory_evolution: new Set(["openai-chat-completions", "anthropic-messages", "gemini-generate-content", "memmy-account"]),
+  agent: new Set(["openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
+  memory_summary: new Set(["openai-chat-completions", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
+  memory_evolution: new Set(["openai-chat-completions", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
   embedding: new Set(["openai-embeddings", "memmy-account"]),
   asr: new Set(["dashscope-input-audio-chat", "memmy-account"]),
   image_generation: new Set(["openai-images", "dashscope-multimodal-generation", "memmy-account"])
@@ -145,7 +145,7 @@ function mergeModelConfig(config: ConfigRecord, input: ModelConfigInput): Config
       validatePresetEndpoint(providerInput.provider, modelInput, endpoint);
       const presetId = resolvePresetId(modelInput.presetId, existingByokPresets, usedPresetIds);
       const previousPreset = record(existingByokPresets[presetId]);
-      nextPresets[presetId] = {
+      const nextPreset: ConfigRecord = {
         ...previousPreset,
         provider: providerInput.provider,
         endpoint: modelInput.endpointId,
@@ -153,8 +153,15 @@ function mergeModelConfig(config: ConfigRecord, input: ModelConfigInput): Config
         source: "byok",
         capabilities: [...new Set(modelInput.capabilities)]
       };
-      delete record(nextPresets[presetId]).label;
-      delete record(nextPresets[presetId]).ownerAccountId;
+      delete record(nextPreset).label;
+      delete record(nextPreset).ownerAccountId;
+      if (modelInput.thinking) nextPreset.thinking = modelInput.thinking;
+      else delete nextPreset.thinking;
+      if (modelInput.custom) nextPreset.custom = true;
+      else delete nextPreset.custom;
+      if (modelInput.inputModalities) nextPreset.inputModalities = [...modelInput.inputModalities];
+      else delete nextPreset.inputModalities;
+      nextPresets[presetId] = nextPreset;
     }
   }
 
@@ -443,6 +450,8 @@ function mergeEndpoint(previous: ConfigRecord, input: CatalogEndpointInput): Con
   setOptionalSecret(next, "apiKey", input.apiKey, previous.apiKey);
   setOptionalRecord(next, "extraHeaders", input.extraHeaders, previous.extraHeaders);
   setOptionalRecord(next, "extraBody", input.extraBody, previous.extraBody);
+  if (input.region) next.region = input.region;
+  else delete next.region;
   return next;
 }
 
@@ -651,7 +660,8 @@ function providerView(
       protocol,
       hasApiKey: Boolean(endpointApiKey),
       apiKeyMasked: maskSecret(endpointApiKey),
-      apiKey: ""
+      apiKey: "",
+      ...(stringValue(endpoint.region) ? { region: stringValue(endpoint.region)! } : {})
     }];
   });
   return {
@@ -692,7 +702,10 @@ function presetView(
     source,
     ...(stringValue(preset.ownerAccountId) ? { ownerAccountId: stringValue(preset.ownerAccountId)! } : {}),
     capabilities: arrayValue(preset.capabilities).filter(isModelCapability),
-    available: Boolean((hasCredential || API_KEY_OPTIONAL_PROVIDERS.has(providerId)) && ownerMatches)
+    available: Boolean((hasCredential || API_KEY_OPTIONAL_PROVIDERS.has(providerId)) && ownerMatches),
+    ...(preset.thinking && typeof preset.thinking === "object" ? { thinking: preset.thinking as TextModelItemView["thinking"] } : {}),
+    ...(preset.custom === true ? { custom: true } : {}),
+    ...(Array.isArray(preset.inputModalities) ? { inputModalities: preset.inputModalities as TextModelItemView["inputModalities"] } : {})
   };
 }
 

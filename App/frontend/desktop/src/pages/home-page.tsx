@@ -1,6 +1,6 @@
 /** Home page module. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type SetStateAction, type UIEvent } from "react";
-import type { AgentGatewayStartupIssue } from "@memmy/local-api-contracts";
+import { resolveThinkingEnabled, resolveThinkingLevel, type AgentGatewayStartupIssue } from "@memmy/local-api-contracts";
 import { hydrateAgentThreadInBackground, refreshAgentTaskList, useAgentRuntimeBridge, type AgentTaskStateCoordinator } from "../app/agent-runtime-bridge.js";
 import { useApiClients } from "../app/providers.js";
 import { FOCUSED_AGENT_CHAT_STORAGE_KEY, clearFocusedAgentTarget, isAccountTokenQuotaExhausted, normalizeAgentChatId, readLaunchAgentChatId, removeLaunchAgentChatIdFromUrl } from "../app/routes.js";
@@ -40,7 +40,7 @@ import { ImChannelTitleIcon, imChannelTitleDisplay } from "../integrations/integ
 import { useTaskBus, type TaskBusAgentMessage } from "../lib/task-bus.js";
 import type { AppAction } from "../state/app-actions.js";
 import { agentActions, appActions, createAgentOperationError } from "../state/app-actions.js";
-import { type AgentChatMessage, type AgentState } from "../state/agent-chat-slice.js";
+import { NEW_TASK_MODEL_SCOPE_KEY, type AgentChatMessage, type AgentState, type AgentThinkingState } from "../state/agent-chat-slice.js";
 import { useAppState } from "../state/app-state.js";
 import { isComposingKeyboardEvent } from "../utils/keyboard.js";
 import {
@@ -51,7 +51,7 @@ import {
   type PendingFileAttachment,
   type PendingImage
 } from "../state/agent-composer-state.js";
-import { createModelWorkspace, resolveModelSelection } from "../state/model-workspace.js";
+import { createModelWorkspace, resolveModelSelection, resolveThinkingConfigForModel, type ModelCandidate, type ModelWorkspace } from "../state/model-workspace.js";
 import {
   AgentCommandPalette,
   buildVisibleSlashCommands,
@@ -98,8 +98,6 @@ export { agentChatScopeKey, updateComposerDraftForScope };
 export { hydrateAgentThreadInBackground };
 export { isComposingKeyboardEvent } from "../utils/keyboard.js";
 export type { PendingAttachment, PendingAttachmentBase, PendingFileAttachment, PendingImage };
-
-const NEW_TASK_MODEL_SCOPE_KEY = "draft-new-task";
 
 const COMPOSER_MEDIA_STRIP_STYLE = { maxHeight: "min(7.5rem, 28vh)" } satisfies CSSProperties;
 const AGENT_WS_SAFE_FRAME_BYTES = 1024 * 1024;
@@ -311,6 +309,8 @@ export interface SubmitAgentComposerMessageInput {
   getChatSelectionEpoch?: () => number;
   scopeKey?: string;
   modelPreset?: string | null;
+  thinkingEnabled?: boolean;
+  thinkingLevel?: string | null;
 }
 
 export interface RequestAgentStopInput {
@@ -652,6 +652,20 @@ export function requestNewSessionReset(input: RequestNewSessionResetInput): bool
   return true;
 }
 
+export function thinkingPayloadForSend(
+  workspace: ModelWorkspace,
+  candidate: ModelCandidate | null | undefined,
+  sessionThinking: AgentThinkingState | undefined
+): { thinkingEnabled?: boolean; thinkingLevel?: string | null } {
+  const config = resolveThinkingConfigForModel(workspace, candidate);
+  if (!config) return {};
+  const thinkingEnabled = resolveThinkingEnabled(config, sessionThinking?.enabled);
+  const thinkingLevel = thinkingEnabled
+    ? resolveThinkingLevel(config, sessionThinking?.level)
+    : null;
+  return { thinkingEnabled, thinkingLevel };
+}
+
 export async function submitAgentComposerMessage(input: SubmitAgentComposerMessageInput): Promise<boolean> {
   const text = input.content.trim();
   const trimmedDisplayContent = input.displayContent?.trim();
@@ -746,6 +760,8 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
     ...(capturedTarget ? { target: capturedTarget } : {}),
     ...(input.language ? { language: input.language } : {}),
     ...(confirmedModelPreset !== undefined ? { model_preset: confirmedModelPreset } : {}),
+    ...(input.thinkingEnabled !== undefined ? { thinking_enabled: input.thinkingEnabled } : {}),
+    ...(input.thinkingLevel ? { thinking_level: input.thinkingLevel } : {}),
     ...(uploadedAttachments.length ? { media_paths: uploadedAttachments.map((item) => item.path) } : {})
   };
   if (encodedPayloadBytes(payload) > AGENT_WS_SAFE_FRAME_BYTES) {
@@ -769,6 +785,8 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
       ...(capturedTarget ? { target: capturedTarget } : {}),
       ...(input.language ? { language: input.language } : {}),
       ...(confirmedModelPreset !== undefined ? { modelPreset: confirmedModelPreset } : {}),
+      ...(input.thinkingEnabled !== undefined ? { thinkingEnabled: input.thinkingEnabled } : {}),
+      ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       media: uploadedAttachments
     }, expectedGeneration);
   } catch (error) {
@@ -1748,6 +1766,11 @@ export function HomePage() {
         getChatSelectionEpoch: () => chatSelectionEpochRef.current,
         scopeKey: sendScopeKey,
         modelPreset: resolvedConversationModel.candidateId ?? undefined,
+        ...thinkingPayloadForSend(
+          modelWorkspace,
+          resolvedConversationModel.candidate,
+          state.agent.thinkingStateByScope[modelSelectionScopeKey]
+        ),
         onChatResolved: (chatId) => dispatch(agentActions.modelSelectionRequestStarted(
           sendScopeKey,
           chatId,

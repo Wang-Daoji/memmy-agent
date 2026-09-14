@@ -5,6 +5,7 @@ import { Window } from "happy-dom";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { MemmyAgentMessageRejectedError, MemmyAgentRequestError } from "../../api/memmy-agent-client.js";
+import { createModelWorkspace, type ModelCandidate } from "../../state/model-workspace.js";
 import { AgentRuntimeBridge } from "../../app/agent-runtime-bridge.js";
 import { AppProviders } from "../../app/providers.js";
 import { FOCUSED_AGENT_CHAT_STORAGE_KEY } from "../../app/routes.js";
@@ -41,6 +42,7 @@ import {
   resolveComposerCommandDraft,
   shouldAcceptAgentStatusResult,
   submitAgentComposerMessage,
+  thinkingPayloadForSend,
   updateAgentComposerOverlayHeight,
   updateComposerDraftForScope,
   fileToPendingAttachment,
@@ -190,11 +192,16 @@ describe("HomePage", () => {
     expect(source).toContain("state.agent.pendingPresetByScope[modelSelectionScopeKey]");
     expect(source).toContain("state.agent.committedModelSelectionByScope[modelSelectionScopeKey]?.presetId");
     expect(source).toContain("modelPreset: resolvedConversationModel.candidateId ?? undefined");
+    expect(source).toContain("thinkingPayloadForSend(");
     expect(source).not.toContain("copyScopedModelSelection");
     expect(selectorSource).toContain("agentActions.pendingModelPresetUpdated");
+    expect(selectorSource).toContain("AgentThinkingControl");
+    expect(selectorSource).toContain("resolveThinkingConfigForModel");
     expect(selectorSource).not.toContain("localStorage");
     expect(source).not.toContain('sendMessage({ chatId: state.agent.currentChatId, content: "/model');
     expect(styles).toContain(".agent-model-selector .agent-model-selector__menu");
+    expect(styles).toContain(".agent-model-selector-with-thinking");
+    expect(styles).toContain(".agent-thinking-control");
     expect(styles).toContain("top: calc(100% + 6px)");
     expect(styles).toContain(".agent-model-selector__configure");
     expect(source).not.toContain("modelSwitchNotice");
@@ -206,6 +213,36 @@ describe("HomePage", () => {
     expect(source).toContain("if (resolvedConversationModel.unavailable)");
     expect(source).toContain('message: "home.modelSelector.unavailable"');
     expect(source).not.toContain("agent-conversation-model-error");
+  });
+
+  it("组帧时按模型思考表解析开关与默认档位", () => {
+    const workspace = createModelWorkspace(null);
+    const candidate: ModelCandidate = {
+      id: "gpt-54",
+      source: "byok",
+      provider: "openai",
+      model: "gpt-5.4",
+      displayName: "gpt-5.4",
+      connectionId: null,
+      endpointId: "chat",
+      capability: "chat",
+      capabilities: ["agent"],
+      available: true
+    };
+
+    expect(thinkingPayloadForSend(workspace, candidate, undefined)).toEqual({
+      thinkingEnabled: true,
+      thinkingLevel: "medium"
+    });
+    expect(thinkingPayloadForSend(workspace, candidate, { enabled: false })).toEqual({
+      thinkingEnabled: false,
+      thinkingLevel: null
+    });
+    expect(thinkingPayloadForSend(workspace, candidate, { enabled: true, level: "high" })).toEqual({
+      thinkingEnabled: true,
+      thinkingLevel: "high"
+    });
+    expect(thinkingPayloadForSend(workspace, { ...candidate, model: "unlisted-model" }, undefined)).toEqual({});
   });
 
   it("hides the agent status line after the websocket is connected", () => {
