@@ -75,6 +75,7 @@ export interface AppFrameProps {
   reserveTopBar?: boolean;
   topBar?: ReactNode;
   topBarBorder?: boolean;
+  windowsTitlebarSafe?: boolean;
   /** When set, replaces the main app sidebar with settings section navigation. */
   settingsNav?: SettingsSidebarNav;
   children: ReactNode;
@@ -159,7 +160,7 @@ interface SidebarContextMenuPlacement {
 }
 
 type AgentTaskSort = AppState["agent"]["sidebarState"]["view"]["sort"];
-type NewAgentDraftState = Pick<AppState["agent"], "blankDraftActive" | "newChatRequestId" | "composerDraftsByScope" | "composerPendingAttachmentsByScope">;
+type NewAgentDraftState = Pick<AppState["agent"], "blankDraftActive" | "newChatRequestId" | "composerDraftsByScope" | "composerPendingAttachmentsByScope" | "composerContextReferencesByScope">;
 
 export interface SidebarAccountLabels {
   brandName: string;
@@ -228,10 +229,11 @@ const projectCreateMenuSize: SidebarMenuSize = {
   margin: 8,
   gap: 2
 };
-const sidebarMenuOverlayZIndex = 9999;
+const sidebarMenuOverlayZIndex = 10010;
 const SIDEBAR_PROFILE_NAME_MAX_VISUAL_WIDTH = 10;
 const SIDEBAR_PROFILE_META_MAX_VISUAL_WIDTH = 12;
 const ACCOUNT_DISPLAY_ELLIPSIS = "…";
+const COMPACT_APP_FRAME_QUERY = "(max-width: 720px)";
 const standaloneRenderTaskStateCoordinator: AgentTaskStateCoordinator = {
   refreshTaskState: () => undefined,
   focusTask: () => undefined,
@@ -254,7 +256,8 @@ export function shouldCreateNewAgentDraft(agent: NewAgentDraftState): boolean {
   }
   const draftScopeKey = agentChatScopeKey(null, agent.newChatRequestId);
   return !agent.composerDraftsByScope[draftScopeKey]
-    && !(agent.composerPendingAttachmentsByScope[draftScopeKey]?.length);
+    && !(agent.composerPendingAttachmentsByScope[draftScopeKey]?.length)
+    && !(agent.composerContextReferencesByScope[draftScopeKey]?.length);
 }
 
 /** Sidebar workspace highlight: only when a blank new-task draft targets a project. */
@@ -296,7 +299,13 @@ export function AppFrame(props: AppFrameProps) {
   const [deferredGuidanceStep, setDeferredGuidanceStep] = useState(() =>
     readDeferredGuidanceStep(typeof window === "undefined" ? undefined : window.sessionStorage)
   );
-  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [compactViewport, setCompactViewport] = useState(() => (
+    typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia(COMPACT_APP_FRAME_QUERY).matches
+  ));
+  const [desktopSidebarHidden, setDesktopSidebarHidden] = useState(false);
+  const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
   const communityMenuRef = useRef<HTMLDivElement | null>(null);
   const taskScrollRef = useRef<HTMLDivElement | null>(null);
   const [taskScrollFade, setTaskScrollFade] = useState(false);
@@ -304,6 +313,7 @@ export function AppFrame(props: AppFrameProps) {
   const hasRequestedAgentData = useRef(false);
   const lastNotifiedCompletionAt = useRef<number | null>(null);
   const previousCanonicalSessionKeysRef = useRef<Set<string> | null>(null);
+  const lastAutoExpandedSessionKeyRef = useRef<string | null>(null);
   const accountSummary = resolveSidebarAccountSummary(state, {
     brandName: t("brand.name"),
     byokLabel: t("welcome.byok.title"),
@@ -332,6 +342,44 @@ export function AppFrame(props: AppFrameProps) {
   );
   const highlightedSessionKey = state.navigation.currentPath === "/main" ? state.agent.currentSessionKey : null;
   const selectedSidebarProjectId = resolveSelectedSidebarProjectId(state.agent, state.navigation.currentPath);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(COMPACT_APP_FRAME_QUERY);
+    const syncViewport = (matches: boolean) => {
+      setCompactViewport(matches);
+      if (matches) setCompactSidebarOpen(false);
+    };
+    const onChange = (event: MediaQueryListEvent) => syncViewport(event.matches);
+    syncViewport(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!compactViewport || !compactSidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCompactSidebarOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [compactSidebarOpen, compactViewport]);
+
+  const sidebarHidden = compactViewport ? !compactSidebarOpen : desktopSidebarHidden;
+
+  function hideSidebar() {
+    if (compactViewport) setCompactSidebarOpen(false);
+    else setDesktopSidebarHidden(true);
+  }
+
+  function showSidebar() {
+    if (compactViewport) setCompactSidebarOpen(true);
+    else setDesktopSidebarHidden(false);
+  }
+
+  function closeCompactSidebar() {
+    if (compactViewport) setCompactSidebarOpen(false);
+  }
 
   const removeProject = state.agent.projects.find((project) => project.id === removeProjectId) ?? null;
   const archiveProject = state.agent.projects.find((project) => project.id === archiveProjectId) ?? null;
@@ -522,6 +570,7 @@ export function AppFrame(props: AppFrameProps) {
   }
 
   function openNewAgent(target?: WebuiSessionTarget) {
+    closeCompactSidebar();
     const nextDraftRequestId = shouldCreateNewAgentDraft(state.agent)
       ? state.agent.newChatRequestId + 1
       : state.agent.newChatRequestId;
@@ -543,6 +592,7 @@ export function AppFrame(props: AppFrameProps) {
   }
 
   function openSidebarRoute(path: AppRoutePath) {
+    closeCompactSidebar();
     if (path === "/main") {
       openNewAgent({ kind: "standalone" });
     } else {
@@ -551,6 +601,7 @@ export function AppFrame(props: AppFrameProps) {
   }
 
   function openSettingsFromSidebar() {
+    closeCompactSidebar();
     if (state.navigation.currentPath === "/settings") {
       const prev = state.navigation.history.slice().reverse().find((p) => p !== "/settings");
       dispatch(appActions.navigate(prev ?? "/main"));
@@ -628,6 +679,7 @@ export function AppFrame(props: AppFrameProps) {
   }
 
   async function openAgentTask(task: AgentTaskView) {
+    closeCompactSidebar();
     handleFirstSidebarInteraction();
     if (!clients?.memmyAgent) {
       dispatch(appActions.navigate("/main"));
@@ -719,6 +771,14 @@ export function AppFrame(props: AppFrameProps) {
       });
     }
   }
+
+  useEffect(() => {
+    if (!highlightedSessionKey || lastAutoExpandedSessionKeyRef.current === highlightedSessionKey) return;
+    const task = state.agent.tasks.find((candidate) => candidate.sessionKey === highlightedSessionKey);
+    if (!task) return;
+    lastAutoExpandedSessionKeyRef.current = highlightedSessionKey;
+    expandTaskAncestors(task);
+  }, [highlightedSessionKey, showingArchived, state.agent.projects, state.agent.sidebarState.collapsed_groups, state.agent.tasks]);
 
   function selectSidebarWorkspace(projectId: string) {
     setProjectCreateMenuAnchor(null);
@@ -1052,9 +1112,11 @@ export function AppFrame(props: AppFrameProps) {
     }
   }
 
-  const sidebarStyle = sidebarHidden
-    ? { ...sidebarResize.sidebarStyle, width: 0, minWidth: 0, maxWidth: 0, flexBasis: 0 }
-    : sidebarResize.sidebarStyle;
+  const sidebarStyle = compactViewport
+    ? undefined
+    : desktopSidebarHidden
+      ? { ...sidebarResize.sidebarStyle, width: 0, minWidth: 0, maxWidth: 0, flexBasis: 0 }
+      : sidebarResize.sidebarStyle;
 
   return (
     <div className={`sidebar-shell flex h-screen bg-canvas-oat${sidebarHidden ? " sidebar-shell--hidden" : ""}`}>
@@ -1070,7 +1132,7 @@ export function AppFrame(props: AppFrameProps) {
             className="sidebar-toolbar-button"
             aria-label={t("appFrame.hideSidebar")}
             title={t("appFrame.hideSidebar")}
-            onClick={() => setSidebarHidden(true)}
+            onClick={hideSidebar}
           >
             <PanelLeft size={20} />
           </button>
@@ -1114,7 +1176,10 @@ export function AppFrame(props: AppFrameProps) {
                             ? "app-frame-nav-button--active"
                             : "text-text-ink/75 hover:bg-canvas-oat/60 hover:text-text-ink/85"
                         }`}
-                        onClick={() => props.settingsNav?.onSelectTab(item.id)}
+                        onClick={() => {
+                          closeCompactSidebar();
+                          props.settingsNav?.onSelectTab(item.id);
+                        }}
                       >
                         <span className="shrink-0">{icon}</span>
                         <span className="flex-1 text-left">{t(item.labelKey)}</span>
@@ -1140,6 +1205,7 @@ export function AppFrame(props: AppFrameProps) {
             function handleClick() {
               handleFirstSidebarInteraction();
               if (item.action === "search") {
+                closeCompactSidebar();
                 setSearchPaletteOpen(true);
               } else if (item.action === "community") {
                 setShowCommunity((v) => !v);
@@ -1552,11 +1618,20 @@ export function AppFrame(props: AppFrameProps) {
           className="sidebar-restore-button"
           aria-label={t("appFrame.showSidebar")}
           title={t("appFrame.showSidebar")}
-          onClick={() => setSidebarHidden(false)}
+          onClick={showSidebar}
         >
           <PanelLeftCollapsed size={20} />
         </button>
       )}
+
+      {compactViewport && !sidebarHidden ? (
+        <button
+          type="button"
+          className="app-frame-sidebar-backdrop"
+          aria-label={t("appFrame.hideSidebar")}
+          onClick={closeCompactSidebar}
+        />
+      ) : null}
 
       <SidebarResizeHandle
         label={t("appFrame.resizeSidebar")}
@@ -1569,7 +1644,7 @@ export function AppFrame(props: AppFrameProps) {
         onResizeBy={sidebarResize.resizeBy}
       />
 
-      <main className={`relative min-w-0 flex-1 overflow-hidden flex flex-col bg-content-bg${sidebarHidden ? " app-frame-main--sidebar-hidden" : ""}`} aria-label={props.title}>
+      <main className={`app-frame-main relative min-w-0 flex-1 overflow-hidden flex flex-col bg-content-bg${sidebarHidden ? " app-frame-main--sidebar-hidden" : ""}${props.windowsTitlebarSafe ? " app-frame-main--windows-titlebar-safe" : ""}`} aria-label={props.title}>
         {props.reserveTopBar !== false && (
           <header className={`app-frame-content-topbar${props.topBarBorder ? " app-frame-content-topbar--bordered" : ""}`}>
             {props.topBar}
@@ -1580,7 +1655,7 @@ export function AppFrame(props: AppFrameProps) {
           className={`min-h-0 h-full flex-1 overflow-hidden${
             sidebarHidden && !props.topBarBorder ? " app-frame-content-body--sidebar-hidden" : ""
           }`}
-          style={props.topBarBorder ? { paddingTop: "var(--codex-toolbar-height)" } : undefined}
+          style={props.topBarBorder ? { paddingTop: "calc(var(--codex-toolbar-height) + var(--app-frame-topbar-offset, 0px))" } : undefined}
         >
           {props.children}
         </div>

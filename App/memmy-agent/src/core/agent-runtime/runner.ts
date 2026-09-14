@@ -1096,6 +1096,7 @@ export class AgentRunner {
         abortSignal: spec.abortSignal ?? null,
         toolName: call.name,
         callId: call.id ?? null,
+        sessionKey: spec.sessionKey ?? null,
         reportFileMutation: (outcome) => {
           fileMutationOutcomes.set(path.resolve(outcome.path), {
             path: path.resolve(outcome.path),

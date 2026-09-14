@@ -18,6 +18,11 @@ import {
   parseTurnSource,
   type TurnSource,
 } from "../../core/runtime-messages/index.js";
+import {
+  respondToAgentQuestion,
+  type AgentQuestionAnswer,
+  type AgentQuestionResponse,
+} from "../../core/agent-runtime/tools/ask-question.js";
 import { builtinCommandPalette } from "../../command/builtin.js";
 import { loadConfig } from "../../config/loader.js";
 import {
@@ -40,9 +45,11 @@ import type {
 import { getMediaDir, getWorkspacePath } from "../../config/paths.js";
 import type { CronService } from "../../cron/service.js";
 import { goalStateWsBlob, type GoalStatus } from "../../core/session/goal-state.js";
+import { taskPlanStateWsBlob } from "../../core/session/task-plan-state.js";
 import {
   readWebuiSessionBinding,
   Session,
+  WebuiSessionBindingError,
   WEBUI_PROJECT_ID_METADATA_KEY,
   WEBUI_WORKSPACE_CWD_METADATA_KEY,
 } from "../../core/session/manager.js";
@@ -76,6 +83,11 @@ import {
   type WebuiProject,
   type WebuiSessionTarget,
 } from "../../entrypoints/frontend-bridge/projects.js";
+import {
+  listWorkspaceFiles,
+  WorkspaceFilesError,
+  type WorkspaceFilesRootKind,
+} from "../../entrypoints/frontend-bridge/workspace-files.js";
 import {
   GuiSessionProjection,
   GuiSessionProjectionError,
@@ -223,6 +235,7 @@ const CHAT_ID_RE = /^[A-Za-z0-9_:-]{1,64}$/;
 const API_KEY_RE = /^[A-Za-z0-9_:.-]{1,128}$/;
 const WEBUI_LANGUAGE_VALUES = new Set<WebuiLanguage>(["zh-CN", "en-US"]);
 const TURN_CONTENT_EVENTS = new Set([
+  "agent_question_response",
   "context_compaction",
   "delta",
   "file_edit",
@@ -248,6 +261,42 @@ const MCP_PRESET_ACTIONS_BY_PATH: Record<string, string> = {
   "/api/settings/mcp-presets/tools": "tools",
   "/api/settings/mcp-presets/reload": "reload",
 };
+
+function normalizeAgentQuestionResponse(
+  requestId: unknown,
+  value: unknown,
+): AgentQuestionResponse | null {
+  if (typeof requestId !== "string" || !UUID_RE.test(requestId)) return null;
+  if (!Array.isArray(value) || value.length < 1 || value.length > 4) return null;
+  const answers: AgentQuestionAnswer[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const item = raw as Record<string, unknown>;
+    const questionId = typeof item.question_id === "string"
+      ? item.question_id.trim()
+      : typeof item.questionId === "string"
+        ? item.questionId.trim()
+        : "";
+    const rawSelected = Array.isArray(item.selected_option_ids)
+      ? item.selected_option_ids
+      : Array.isArray(item.selectedOptionIds)
+        ? item.selectedOptionIds
+        : null;
+    if (!questionId || questionId.length > 64 || !rawSelected || rawSelected.length > 8) return null;
+    const selectedOptionIds = rawSelected.map((entry) => typeof entry === "string" ? entry.trim() : "");
+    if (selectedOptionIds.some((entry) => !entry || entry.length > 64)) return null;
+    const rawOtherText = item.other_text ?? item.otherText;
+    if (rawOtherText != null && typeof rawOtherText !== "string") return null;
+    const otherText = typeof rawOtherText === "string" ? rawOtherText.trim() : "";
+    if (otherText.length > 2_000) return null;
+    answers.push({
+      questionId,
+      selectedOptionIds,
+      ...(otherText ? { otherText } : {}),
+    });
+  }
+  return { requestId, answers };
+}
 
 const MAX_WEBUI_UPLOAD_BODY_BYTES = 256 * 1024 * 1024;
 // Control characters and the escaped path separators are intentional filename exclusions.
@@ -1156,6 +1205,17 @@ export class WebSocketChannel extends BaseChannel {
     await this.sendGoalState(chatId, blob);
   }
 
+  async maybePushTaskPlanState(chatId: string): Promise<void> {
+    if (!this.sessionManager) return;
+    const sessionKey = this.canonicalSessionKeyForChatId(chatId);
+    if (!sessionKey) return;
+    const row = this.readSessionFile(sessionKey);
+    const metadata = row && typeof row.metadata === "object" ? row.metadata : {};
+    const blob = taskPlanStateWsBlob(metadata);
+    if (!blob.plan_id) return;
+    await this.sendTaskPlanState(chatId, blob);
+  }
+
   async maybePushTurnRunWallClock(chatId: string): Promise<void> {
     const terminalRun = this.terminalRunStateForChatId(chatId);
     const startedAt = websocketTurnWallStartedAt(chatId)
@@ -1225,6 +1285,7 @@ export class WebSocketChannel extends BaseChannel {
 
   async hydrateAfterSubscribe(chatId: string): Promise<void> {
     await this.maybePushActiveGoalState(chatId);
+    await this.maybePushTaskPlanState(chatId);
     await this.maybePushTurnRunWallClock(chatId);
   }
 
@@ -1943,6 +2004,67 @@ export class WebSocketChannel extends BaseChannel {
     const result = this.workspaceEnvironmentSession(key);
     if (!result.ok) return result.response;
     return this.workspaceEnvironmentResponse(request, result.context, view);
+  }
+
+  handleWorkspaceFiles(request: HttpRequestLike, key: string): HttpLikeResponse {
+    if (!this.checkApiToken(request)) return httpError(401, "Unauthorized");
+    if ((request.method ?? "GET").toUpperCase() !== "GET") return httpError(405, "method not allowed");
+    if (!this.sessionManager) return httpError(503, "session manager unavailable");
+
+    try {
+      const decodedKey = decodeGuiSessionApiKey(key);
+      if (decodedKey == null) return invalidGuiSessionKeyResponse(key);
+      let resolved: ResolvedGuiSession;
+      try {
+        resolved = this.resolveGuiSession(decodedKey);
+      } catch (error) {
+        if (error instanceof GuiSessionProjectionError && error.code === "session_binding_invalid") {
+          return httpJsonResponse(
+            { code: "workspace_missing", message: "workspace_missing" },
+            { status: 422 },
+          );
+        }
+        if (error instanceof GuiSessionProjectionError) return httpError(error.status, error.code);
+        return httpError(404, "session not found");
+      }
+      const session = this.sessionManager.get?.(resolved.canonicalSessionKey) as Session | null;
+      if (!session) return httpError(404, "session not found");
+      const binding = readWebuiSessionBinding(session);
+
+      let rootPath = binding.cwd;
+      let rootKind: WorkspaceFilesRootKind = "task";
+      let rootLabel = path.basename(binding.cwd) || "Task files";
+      if (binding.projectId !== null) {
+        const project = this.activeProject(binding.projectId);
+        rootPath = project.rootPath;
+        rootKind = "project";
+        rootLabel = project.name;
+      }
+      const [, query] = parseRequestPath(String(request.path ?? ""));
+      return httpJsonResponse(listWorkspaceFiles(rootPath, {
+        rootKind,
+        rootLabel,
+        relativePath: queryFirst(query, "path") ?? "",
+      }));
+    } catch (error) {
+      if (error instanceof WorkspaceFilesError) {
+        return httpJsonResponse(
+          { code: error.code, message: error.message },
+          { status: error.status },
+        );
+      }
+      if (error instanceof WebuiSessionBindingError) {
+        return httpJsonResponse(
+          { code: error.code, message: error.message },
+          { status: 422 },
+        );
+      }
+      if (error instanceof WebuiProjectError) return this.projectErrorResponse(error);
+      return httpJsonResponse(
+        { code: "workspace_files_unavailable", message: "workspace files unavailable" },
+        { status: 500 },
+      );
+    }
   }
 
   handleWebuiThreadGet(request: any, key: string): HttpLikeResponse {
@@ -2738,6 +2860,8 @@ export class WebSocketChannel extends BaseChannel {
     if (match) return this.handleWorkspaceEnvironment(request, match[1], "diff");
     match = got.match(/^\/api\/sessions\/([^/]+)\/environment\/branch$/);
     if (match) return this.handleWorkspaceEnvironment(request, match[1], "branch");
+    match = got.match(/^\/api\/sessions\/([^/]+)\/workspace\/files$/);
+    if (match) return this.handleWorkspaceFiles(request, match[1]);
     match = got.match(/^\/api\/sessions\/([^/]+)\/webui-thread$/);
     if (match) return this.handleWebuiThreadGet(request, match[1]);
     match = got.match(/^\/api\/sessions\/([^/]+)\/last-compaction$/);
@@ -3337,6 +3461,43 @@ export class WebSocketChannel extends BaseChannel {
 
   async dispatchEnvelope(connection: any, clientId: string, envelope: Record<string, any>): Promise<void> {
     const type = envelope.type;
+    if (type === "agent_question_response") {
+      const chatId = typeof envelope.chat_id === "string" && isValidGuiChatId(envelope.chat_id)
+        ? envelope.chat_id
+        : "";
+      const response = normalizeAgentQuestionResponse(envelope.request_id, envelope.answers);
+      if (
+        !chatId
+        || !response
+        || !this.connectionChats.get(connection)?.has(chatId)
+      ) {
+        await this.safeSendTo(connection, {
+          event: "agent_question_response_result",
+          chat_id: chatId,
+          request_id: typeof envelope.request_id === "string" ? envelope.request_id : "",
+          ok: false,
+          error: "invalid_request",
+        });
+        return;
+      }
+      const result = respondToAgentQuestion({ chatId, response });
+      if (result.ok) {
+        await this.sendTurnPayload(chatId, {
+          event: "agent_question_response",
+          chat_id: chatId,
+          request_id: response.requestId,
+          answers: response.answers,
+        });
+      }
+      await this.safeSendTo(connection, {
+        event: "agent_question_response_result",
+        chat_id: chatId,
+        request_id: response.requestId,
+        ok: result.ok,
+        ...(!result.ok ? { error: result.error } : {}),
+      });
+      return;
+    }
     if (type === "queue_snapshot_request") {
       const chatId = typeof envelope.chat_id === "string" && isValidGuiChatId(envelope.chat_id)
         ? envelope.chat_id
@@ -3721,6 +3882,7 @@ export class WebSocketChannel extends BaseChannel {
       await this.sendRunStatusSnapshot(connection, chatId);
       await this.sendWebuiQueueSnapshot(connection, chatId);
       await this.maybePushActiveGoalState(chatId);
+      await this.maybePushTaskPlanState(chatId);
       return;
     }
     if (type === "status") {
@@ -4232,6 +4394,15 @@ export class WebSocketChannel extends BaseChannel {
       );
       return;
     }
+    if (message.metadata?.taskPlanStateSync) {
+      await this.sendTaskPlanState(
+        message.chatId,
+        typeof message.metadata.taskPlanState === "object"
+          ? message.metadata.taskPlanState
+          : taskPlanStateWsBlob(),
+      );
+      return;
+    }
     if (message.metadata?.runStatusEvent) {
       await this.sendRunStatus(message.chatId, String(message.metadata.runStatus), {
         startedAt: numberOrNull(message.metadata.startedAt),
@@ -4456,6 +4627,14 @@ export class WebSocketChannel extends BaseChannel {
 
   async sendGoalState(chatId: string, blob: Record<string, any>): Promise<void> {
     await this.broadcast(chatId, { event: "goal_state", chat_id: chatId, goal_state: blob });
+  }
+
+  async sendTaskPlanState(chatId: string, blob: Record<string, any>): Promise<void> {
+    await this.broadcast(chatId, {
+      event: "task_plan_state",
+      chat_id: chatId,
+      task_plan_state: blob,
+    });
   }
 
   async sendRunStatus(chatId: string, status: string, {

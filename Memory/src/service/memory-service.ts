@@ -86,6 +86,9 @@ import type {
   ToolCallPayload,
   ToolObserveRequest,
   TurnCompleteRequest,
+  SourceTurnCompleteRequest,
+  SourceTurnCompleteResponse,
+  TurnCompletionResult,
   TurnStartRequest
 } from "../types.js";
 import { MemoryServiceError } from "../utils/error.js";
@@ -195,26 +198,12 @@ export interface MemoryServiceOptions {
   llm?: LlmClient;
   skillLlm?: LlmClient;
   embedder?: Embedder;
+  /** Actual HTTP endpoint used by the current server instance. */
+  viewerEndpoint?: string;
 }
 
-export interface CompleteTurnResponse {
-  turnId: string;
-  sessionId: string;
-  episodeId: string;
-  rawTurnId: string;
-  userMemoryId: string;
-  userMemoryIds: string[];
-  l1MemoryId: string;
-  l1MemoryIds: string[];
-  closedEpisodeIds: string[];
-  scheduledEvolution: boolean;
-  jobs: JobRef[];
-  changeSeq: number;
-  syncCursor: string;
-  etag: string;
-  serverTime: string;
-  duplicate?: boolean;
-}
+export type CompleteTurnResponse = TurnCompletionResult;
+
 type TraceMeta = NonNullable<ReturnType<typeof traceMetaFromMemory>>;
 
 interface DecisionRepairSummary {
@@ -273,8 +262,10 @@ export class MemoryService {
   private skillLlm: LlmClient;
   private embedder: Embedder;
   private readonly embeddingRetryWorkerId = `embedding-retry-${newId("worker")}`;
+  private viewerEndpoint?: string;
 
   constructor(private readonly options: MemoryServiceOptions) {
+    this.viewerEndpoint = options.viewerEndpoint;
     this.repos = options.backend?.repositories() ?? new Repositories(requireMemoryDb(options).db);
     this.l3WorldModelContextReadModel = new L3WorldModelContextReadModel(this.repos);
     this.mode = options.mode ?? "local";
@@ -663,6 +654,11 @@ export class MemoryService {
     return Math.max(1, retrieval.tier1TopK + retrieval.tier2TopK);
   }
 
+  /** Set after the HTTP server binds, including when an ephemeral port is used. */
+  setViewerEndpoint(endpoint: string): void {
+    this.viewerEndpoint = endpoint;
+  }
+
   health(routes: string[] = []): HealthResponse {
     const schema = this.schemaVersion();
     const backend = this.storageCapabilities();
@@ -671,7 +667,7 @@ export class MemoryService {
       serviceVersion: PROJECT_VERSION,
       protocolVersion: MEMORY_PROTOCOL_VERSION,
       viewerVersion: MEMORY_VIEWER_VERSION,
-      viewerUrl: viewerUrlFromEndpoint(this.config.storage.endpoint),
+      viewerUrl: viewerUrlFromEndpoint(this.viewerEndpoint ?? this.config.storage.endpoint),
       version: PROJECT_VERSION,
       uptimeMs: Date.now() - this.startedAt,
       mode: this.mode,
@@ -722,6 +718,29 @@ export class MemoryService {
           }
         : {}),
       serverTime: nowIso()
+    };
+  }
+
+  async embedTexts(
+    texts: string[],
+    role: "query" | "document" = "document"
+  ): Promise<{
+    embeddings: number[][];
+    model: { provider: string; model: string; mode: "cloud" | "local" | "custom"; dimension: number };
+  }> {
+    const embeddings = await this.embedder.embed(texts, role);
+    const dimension = embeddings[0]?.length ?? 0;
+    if (dimension < 1 || embeddings.some((embedding) => embedding.length !== dimension)) {
+      throw new MemoryServiceError("internal", "embedding provider returned inconsistent vector dimensions");
+    }
+    return {
+      embeddings,
+      model: {
+        provider: this.embedder.config.provider,
+        model: this.embedder.config.model || this.embedder.config.provider,
+        mode: this.config.embedding.mode,
+        dimension
+      }
     };
   }
 
@@ -1057,6 +1076,35 @@ export class MemoryService {
     serverTime: string;
   }> {
     return this.withModelTaskContext(() => this.sessionTurns.startTurn(this.withTimeZone(request)));
+  }
+
+  completeSourceTurn(request: SourceTurnCompleteRequest): SourceTurnCompleteResponse {
+    // Native scans have no Hook envelope. Use the configured owner only when
+    // the request (including authenticated scope) did not provide one.
+    const response = this.sessionTurns.completeSourceTurn(this.withTimeZone({
+      ...request,
+      namespace: {
+        source: request.sourceTurn?.source,
+        profileId: request.sourceTurn?.profileId,
+        sessionKey: request.sourceTurn?.conversationId,
+        ...request.namespace,
+        userId: request.namespace?.userId ?? this.config.userId
+      }
+    }));
+    serviceLogger.info("source_turn.complete", {
+      source: request.sourceTurn?.source,
+      profileId: request.sourceTurn?.profileId,
+      conversationId: request.sourceTurn?.conversationId,
+      turnId: request.sourceTurn?.turnId,
+      channel: request.channel,
+      status: response.status,
+      reason: response.reason,
+      sessionId: response.result?.sessionId,
+      episodeId: response.result?.episodeId,
+      rawTurnId: response.result?.rawTurnId,
+      l1MemoryIds: response.result?.l1MemoryIds
+    });
+    return response;
   }
 
   completeTurn(turnId: string, request: TurnCompleteRequest & Record<string, unknown>): CompleteTurnResponse {
@@ -2677,9 +2725,12 @@ function sanitizeTraceToolCalls(toolCalls: ToolCallPayload[]): ToolCallPayload[]
   return toolCalls.map((call) => ({
     id: call.id,
     name: call.name,
+    input: call.input,
+    output: call.output,
+    status: call.status,
     success: call.success,
     errorCode: call.errorCode,
-    error: call.error ?? errorMessageFromUnknown(call.output),
+    error: call.error,
     startedAt: call.startedAt,
     endedAt: call.endedAt,
     thinkingBefore: call.thinkingBefore,

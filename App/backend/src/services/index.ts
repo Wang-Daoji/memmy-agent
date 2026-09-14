@@ -1,5 +1,6 @@
 import type { AccountChannel } from "@memmy/local-api-contracts";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import type { AppStateStore } from "../infrastructure/app-state-store/index.js";
 import { type MemmyConfigWriter } from "../infrastructure/memmy-config/index.js";
 import type { ScanPreferencesStore } from "../infrastructure/memmy-config/agent-access.js";
@@ -14,6 +15,17 @@ import type { MemmyAgentAdminClient } from "../adapters/outbound/memmy-agent-adm
 import type { SkillTargetRegistry } from "../adapters/outbound/skill-writer/target-registry.js";
 import type { CloudClient } from "../adapters/outbound/cloud-client/index.js";
 import type { MemoryClient } from "../adapters/outbound/memory-client/index.js";
+import {
+  createCommandPluginAdapter,
+  createHttpPluginAdapter,
+  createMcpPluginAdapter,
+  createPluginRuntimeHost,
+  PluginAdapterRegistry,
+  type PluginHostServiceInvoker
+} from "../adapters/outbound/plugin-runtime/index.js";
+import { createPluginArtifactManager, type PluginArtifactManager } from "../adapters/outbound/plugin-artifact/index.js";
+import { createPluginSkillManager } from "../adapters/outbound/plugin-skill/index.js";
+import type { PluginRegistry } from "../adapters/outbound/plugin-registry/index.js";
 import type { PermissionManager } from "../permission/index.js";
 import {
   createAgentSourceLifecycleAnalytics,
@@ -58,6 +70,12 @@ import {
   type SkillDistributionService
 } from "./skill-distribution-service.js";
 import { createTurnService, type TurnService } from "./turn-service.js";
+import { createPluginService, type PluginRuntimeHost, type PluginService } from "./plugin-service.js";
+import { createPluginLocalArtifactService } from "./plugin-local-artifact-service.js";
+import { createPluginModelInferenceService } from "./plugin-model-inference-service.js";
+import { reconcileEntitledPlugins } from "./plugin-entitlement-reconcile-service.js";
+import { createPluginAsrService } from "./plugin-asr-service.js";
+import { createPluginHostServiceRouter } from "./plugin-host-service-router.js";
 
 export interface BackendServices {
   memoryClient: MemoryClient;
@@ -84,6 +102,8 @@ export interface BackendServices {
   asr: AsrService;
   /** Token quota. */
   tokenQuota: TokenQuotaService;
+  /** Third-party plugins. */
+  plugins: PluginService;
 }
 
 export interface CreateBackendServicesOptions {
@@ -98,6 +118,15 @@ export interface CreateBackendServicesOptions {
   skillDistributionService?: SkillDistributionService;
   skillTargetRegistry?: SkillTargetRegistry;
   progressBus?: ProgressBus;
+  pluginRegistry?: PluginRegistry;
+  pluginArtifactManager?: PluginArtifactManager;
+  /** Canonical resource roots trusted to provide immutable bundled plugin archives. */
+  trustedBundledPluginRoots?: readonly string[];
+  pluginRuntimeHost?: PluginRuntimeHost;
+  /** Optional Host-service dispatcher, primarily for embedding and tests. */
+  pluginHostServices?: PluginHostServiceInvoker;
+  /** Exact hosts local command plugins may request. Defaults to MEMMY_COMMAND_PLUGIN_NETWORK_ALLOWLIST. */
+  commandPluginNetworkAllowlist?: readonly string[];
   /** Memmy config writer. */
   memmyConfigWriter?: MemmyConfigWriter;
   /** Memmy config path. */
@@ -111,8 +140,96 @@ export interface CreateBackendServicesOptions {
   scanPreferencesStore?: ScanPreferencesStore;
 }
 
+/** Exact network surface required by the first-party literature-review Providers. */
+export const DEFAULT_COMMAND_PLUGIN_NETWORK_ALLOWLIST = [
+  "export.arxiv.org",
+  "arxiv.org",
+  "eutils.ncbi.nlm.nih.gov",
+  "pmc.ncbi.nlm.nih.gov",
+  "api.openalex.org",
+  "api.crossref.org"
+] as const;
+
 export function createBackendServices(options: CreateBackendServicesOptions): BackendServices {
   const progressBus = options.progressBus ?? createProgressBus();
+  const memmyConfigWriter = options.memmyConfigWriter ?? createUnavailableMemmyConfigWriter();
+  const accountSessionRepository = options.appStateStore.repositories.accountSession;
+  const pluginRepository = options.appStateStore.repositories.plugins;
+  const isEntitlementGranted = (entitlement: string) => accountSessionRepository.getEntitlements().includes(entitlement);
+  /** Lets the plugin registry gate entitlement-restricted releases and downloads. */
+  const pluginRegistryAuthHeaders = (): Record<string, string> => {
+    const cloudUuid = accountSessionRepository.getCloudUuid();
+    return cloudUuid ? { authorization: `Bearer ${cloudUuid}` } : {};
+  };
+  const asrService = createAsrService({
+    bootstrapRepository: options.appStateStore.repositories.bootstrap,
+    accountSessionRepository: options.appStateStore.repositories.accountSession,
+    memmyConfigWriter,
+    cloudClient: options.cloudClient
+  });
+  const pluginFileInputRoots = [join(resolveAgentDataRoot(process.env), "media")];
+  const pluginModelInference = createPluginModelInferenceService({
+    resolveModel: async (pluginId) => {
+      const userMode = options.appStateStore.repositories.bootstrap.getAppSettings().userMode;
+      const account = accountSessionRepository.get();
+      const activeAccountId = account.authenticated ? account.profile.userId : null;
+
+      if (pluginRepository.get(pluginId)?.manifest.modelPolicy?.requiredSource === "account") {
+        if (userMode !== "account" || !activeAccountId) return null;
+        const preset = await memmyConfigWriter.resolveAssignedModel?.({
+          mode: "account",
+          activeAccountId,
+          capability: "agent"
+        });
+        // Account mode still permits BYOK presets, so the resolved source must be checked too.
+        return preset?.ok && preset.context.source === "account" ? preset : null;
+      }
+
+      if (userMode !== "account" && userMode !== "byok") return null;
+      return await memmyConfigWriter.resolveAssignedModel?.({
+        mode: userMode,
+        activeAccountId,
+        capability: "agent"
+      }) ?? null;
+    },
+    embeddingInference: options.memoryClient.embeddingInference
+      ? (input, inferenceOptions) => options.memoryClient.embeddingInference!(input, inferenceOptions)
+      : undefined
+  });
+  const pluginHostServices = options.pluginHostServices ?? createPluginHostServiceRouter([
+    { services: ["model-inference", "embedding-inference"], invoker: pluginModelInference },
+    {
+      services: ["asr"],
+      invoker: createPluginAsrService({ asr: asrService, audioRoots: pluginFileInputRoots })
+    }
+  ]);
+  const pluginRuntimeHost = options.pluginRuntimeHost ?? createPluginRuntimeHost(new PluginAdapterRegistry([
+    createMcpPluginAdapter(),
+    createHttpPluginAdapter(),
+    createCommandPluginAdapter({
+      allowedNetworkHosts: options.commandPluginNetworkAllowlist ?? resolveCommandPluginNetworkAllowlist(process.env),
+      fileInputRoots: pluginFileInputRoots,
+      pluginDataRoot: join(dirname(options.appStateStore.databasePath), "plugin-data"),
+      hostServices: pluginHostServices,
+      isEntitlementGranted
+    })
+  ]));
+  const plugins = createPluginService({
+    repository: pluginRepository,
+    secretStore: options.appStateStore.secretStore,
+    registry: options.pluginRegistry ?? unavailablePluginRegistry,
+    runtimeHost: pluginRuntimeHost,
+    artifactManager: options.pluginArtifactManager ?? createPluginArtifactManager({
+      installRoot: join(dirname(options.appStateStore.databasePath), "plugins"),
+      trustedLocalRoots: options.trustedBundledPluginRoots,
+      authHeaders: pluginRegistryAuthHeaders
+    }),
+    skillManager: createPluginSkillManager({ skillsRoot: join(resolveAgentWorkspace(process.env), "skills") }),
+    localArtifactService: createPluginLocalArtifactService({
+      pluginDataRoot: join(dirname(options.appStateStore.databasePath), "plugin-data")
+    }),
+    isEntitlementGranted
+  });
   const sourceRegistry =
     options.sourceRegistry ??
     createBuiltinAgentSourceRegistry();
@@ -127,8 +244,6 @@ export function createBackendServices(options: CreateBackendServicesOptions): Ba
   const memmyAgentAdminClient =
     options.memmyAgentAdminClient ??
     createHttpMemmyAgentAdminClient({ bootstrapSecret: options.memmyAgentAdminBootstrapSecret });
-  const memmyConfigWriter = options.memmyConfigWriter ?? createUnavailableMemmyConfigWriter();
-  const accountSessionRepository = options.appStateStore.repositories.accountSession;
   const resolveAnalyticsUserId = () => {
     const session = accountSessionRepository.get();
     if (!session.authenticated) return null;
@@ -194,7 +309,16 @@ export function createBackendServices(options: CreateBackendServicesOptions): Ba
       bootstrapRepository: options.appStateStore.repositories.bootstrap,
       memmyConfigWriter: options.memmyConfigWriter,
       memoryClient: options.memoryClient,
-      accountChannel: options.accountChannel
+      accountChannel: options.accountChannel,
+      onAccountGrantsRefreshed: async () => {
+        const failures = await reconcileEntitledPlugins({
+          plugins,
+          entitlements: accountSessionRepository.getEntitlements()
+        });
+        for (const failure of failures) {
+          console.warn(`Entitled plugin reconciliation failed for ${failure.pluginId}: ${failure.message}`);
+        }
+      }
     }),
     integrations: createIntegrationService({
       cloudClient: options.cloudClient,
@@ -247,17 +371,36 @@ export function createBackendServices(options: CreateBackendServicesOptions): Ba
     byokTokenUsage: createByokTokenUsageService({
       repository: options.appStateStore.repositories.byokTokenUsage
     }),
-    asr: createAsrService({
-      bootstrapRepository: options.appStateStore.repositories.bootstrap,
-      accountSessionRepository: options.appStateStore.repositories.accountSession,
-      memmyConfigWriter,
-      cloudClient: options.cloudClient
-    }),
+    asr: asrService,
     tokenQuota: createTokenQuotaService({
       cloudClient: options.cloudClient,
       accountSessionRepository: options.appStateStore.repositories.accountSession
-    })
+    }),
+    plugins
   };
+}
+
+export function resolveCommandPluginNetworkAllowlist(env: NodeJS.ProcessEnv): string[] {
+  const configured = env.MEMMY_COMMAND_PLUGIN_NETWORK_ALLOWLIST?.trim();
+  if (!configured) return [...DEFAULT_COMMAND_PLUGIN_NETWORK_ALLOWLIST];
+  return configured
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function resolveAgentWorkspace(env: NodeJS.ProcessEnv): string {
+  const configured = env.MEMMY_AGENT_WORKSPACE?.trim() || "~/.memmy/workspace";
+  if (configured === "~") return homedir();
+  if (configured.startsWith("~/")) return resolve(homedir(), configured.slice(2));
+  return resolve(configured);
+}
+
+function resolveAgentDataRoot(env: NodeJS.ProcessEnv): string {
+  const configured = env.MEMMY_AGENT_DATA_DIR?.trim() || "~/.memmy";
+  if (configured === "~") return homedir();
+  if (configured.startsWith("~/")) return resolve(homedir(), configured.slice(2));
+  return resolve(configured);
 }
 
 export { createBootstrapService };
@@ -311,3 +454,9 @@ function createUnavailableMemmyConfigWriter(): MemmyConfigWriter {
     patchMcpServerConfig: async () => unavailable()
   };
 }
+
+const unavailablePluginRegistry: PluginRegistry = {
+  async resolve() {
+    throw Object.assign(new Error("Plugin registry is not configured"), { code: "plugin_unavailable" });
+  }
+};

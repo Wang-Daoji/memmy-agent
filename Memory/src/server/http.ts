@@ -1,3 +1,4 @@
+import { EmbeddingInferenceInputSchema } from "@memmy/local-api-contracts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
@@ -22,6 +23,7 @@ import type {
   RuntimeNamespace,
   SessionOpenRequest,
   TurnCompleteRequest,
+  SourceTurnCompleteRequest,
   TurnStartRequest
 } from "../types.js";
 import { DEFAULT_NAMESPACE_SOURCE } from "../types.js";
@@ -64,7 +66,9 @@ export const API_ROUTES = [
   "GET /api/v1/l3-world-model/sessions/:sessionId/context",
   "POST /api/v1/turns/start",
   "POST /api/v1/turns/:turnId/complete",
+  "POST /api/v1/source-turns/complete",
   "POST /api/v1/memory/search",
+  "POST /api/v1/models/embedding/infer",
   "GET /api/v1/memory/recalls/:queryId",
   "POST /api/v1/memory/add",
   "POST /api/v1/memory/processing/status",
@@ -629,6 +633,39 @@ async function routeRequest(
     return publicStartTurnResponse(result);
   }
 
+  if (method === "POST" && path === "/api/v1/source-turns/complete") {
+    requireMemoryWrite(principal);
+    const input = asObject(body, "source-turn.complete");
+    const sourceIdentity = isRecord(input.sourceTurn) ? input.sourceTurn : {};
+    const requestedScope = isRecord(input.namespace) ? input.namespace : {};
+    const namespace = {
+      source: sourceIdentity.source,
+      profileId: sourceIdentity.profileId,
+      sessionKey: sourceIdentity.conversationId,
+      ...requestedScope
+    };
+    // Local headers may carry the generic default source; it is not a source restriction.
+    let scopedPrincipal = principal;
+    if ((principal.kind === "local" || principal.kind === "anonymous") &&
+        principal.namespace?.source === DEFAULT_NAMESPACE_SOURCE && typeof namespace.source === "string") {
+      scopedPrincipal = { ...principal, namespace: { ...principal.namespace, source: namespace.source } };
+    }
+    const request = strictEnvelopeWithPrincipal({ ...input, namespace }, scopedPrincipal) as unknown as SourceTurnCompleteRequest;
+    requireStringField(request, "query", "source-turn.complete");
+    requireStringField(request, "answer", "source-turn.complete");
+    const result = service.completeSourceTurn({
+      namespace: request.namespace, timeZone: request.timeZone, source: request.source,
+      sourceTurn: request.sourceTurn, channel: request.channel, workspacePath: request.workspacePath,
+      sessionId: request.sessionId, episodeId: request.episodeId,
+      query: request.query, answer: request.answer, reasoningSummary: request.reasoningSummary,
+      toolCalls: request.toolCalls, toolResults: request.toolResults, artifacts: request.artifacts,
+      sourceMemoryIds: request.sourceMemoryIds, usage: request.usage, status: request.status,
+      tags: request.tags, userMemoryCorrection: request.userMemoryCorrection
+    });
+    if (result.result) scheduleAutoWorkerForEvolution(result.result, autoWorker);
+    return result;
+  }
+
   const turnComplete = match(path, /^\/api\/v1\/turns\/([^/]+)\/complete$/);
   if (method === "POST" && turnComplete) {
     requireMemoryWrite(principal);
@@ -703,6 +740,12 @@ async function routeRequest(
         ),
       (result) => ({ hit_count: hitCountFromSearchResponse(result) }),
     ));
+  }
+
+  if (method === "POST" && path === "/api/v1/models/embedding/infer") {
+    requireMemoryRead(principal);
+    const request = EmbeddingInferenceInputSchema.parse(body);
+    return service.embedTexts(request.texts, request.role);
   }
 
   const recallEvidence = match(path, /^\/api\/v1\/memory\/recalls\/([^/]+)$/);

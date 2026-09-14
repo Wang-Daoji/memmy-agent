@@ -12,6 +12,24 @@ afterEach(async () => {
 });
 
 describe("HttpMemoryClient", () => {
+  it("posts a native turn without a Runtime Session and preserves pending reasons", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const client = createHttpMemoryClient({ baseUrl: "http://memory.test", token: "fixture-token", timeoutMs: 500, maxRetries: 0 }, {
+      fetchImpl: (async (url, init) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify({ status: "pending", reason: "source_episode_closed" }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch
+    });
+    const input = {
+      sourceTurn: { source: "codex", profileId: "default", conversationId: "native-session", turnId: "native-turn", startedAt: "2099-01-01T00:00:00.000Z", completedAt: "2099-01-01T00:01:00.000Z", completionEvidence: "final_answer:native-turn" },
+      channel: "agent_source_scan" as const, query: "Run tests", answer: "Tests passed", toolCalls: [{ id: "call-a", name: "test", input: "npm test", output: "passed" }]
+    };
+    expect(await client.completeSourceTurn(input, { userId: "fixture-user" })).toEqual({ status: "pending", reason: "source_episode_closed" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("http://memory.test/api/v1/source-turns/complete");
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual(input);
+    expect(new Headers(calls[0]?.init?.headers).get("x-memmy-user-id")).toBe("fixture-user");
+  });
   it("only defines path templates for the final memory HTTP APIs", () => {
     expect(Object.values(MEMORY_LAYER_PATHS)).toEqual([
       "/api/v1/health",
@@ -22,7 +40,9 @@ describe("HttpMemoryClient", () => {
       "/api/v1/sessions/:sessionId/close",
       "/api/v1/turns/start",
       "/api/v1/turns/:turnId/complete",
+      "/api/v1/source-turns/complete",
       "/api/v1/memory/search",
+      "/api/v1/models/embedding/infer",
       "/api/v1/memory/add",
       "/api/v1/memory/:id",
       "/api/v1/memory/:id",
@@ -89,6 +109,10 @@ describe("HttpMemoryClient", () => {
     await expect(client.completeTurn(completeTurnInput())).resolves.toMatchObject({ scheduledEvolution: false });
     await expect(client.search(searchInput())).resolves.toEqual({ injectedContext: "" });
     await expect(client.search({ ...searchInput(), verbose: true })).resolves.toMatchObject({ debug: { hits: [] } });
+    await expect(client.embeddingInference?.({ texts: ["query", "document"], role: "document" })).resolves.toEqual({
+      embeddings: [[1, 0], [0, 1]],
+      model: { provider: "local", model: "test-embedding", mode: "local", dimension: 2 }
+    });
     await expect(client.addMemory(addMemoryInput())).resolves.toMatchObject({ id: "memory-1" });
     await expect(client.getMemory({ memoryId: "memory-1" })).resolves.toMatchObject({ item: { id: "memory-1" } });
     await expect(client.deleteMemory({ memoryId: "memory-1", source: "codex" })).resolves.toMatchObject({ status: "deleted" });
@@ -121,6 +145,7 @@ describe("HttpMemoryClient", () => {
       "POST /api/v1/turns/turn-1/complete",
       "POST /api/v1/memory/search",
       "POST /api/v1/memory/search",
+      "POST /api/v1/models/embedding/infer",
       "POST /api/v1/memory/add",
       "GET /api/v1/memory/memory-1",
       "DELETE /api/v1/memory/memory-1",
@@ -439,6 +464,12 @@ function fixtureFor(method: string, path: string, body: unknown): unknown {
   if (method === "POST" && path === "/api/v1/turns/start") return startTurnOutput(body);
   if (method === "POST" && path === "/api/v1/turns/turn-1/complete") return completeTurnOutput();
   if (method === "POST" && path === "/api/v1/memory/search") return searchOutput(body);
+  if (method === "POST" && path === "/api/v1/models/embedding/infer") {
+    return {
+      embeddings: [[1, 0], [0, 1]],
+      model: { provider: "local", model: "test-embedding", mode: "local", dimension: 2 }
+    };
+  }
   if (method === "POST" && path === "/api/v1/memory/add") return addMemoryOutput(body);
   if (method === "GET" && path === "/api/v1/memory/memory-1") return getMemoryOutput();
   if (method === "DELETE" && path === "/api/v1/memory/memory-1") return deleteMemoryOutput();

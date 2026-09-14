@@ -4,7 +4,9 @@ import {
   ApiErrorBodySchema,
   CloseSessionOutputSchema,
   CompleteTurnOutputSchema,
+  SourceTurnCompleteOutputSchema,
   DeleteMemoryOutputSchema,
+  EmbeddingInferenceOutputSchema,
   DeletePanelTaskOutputSchema,
   EnqueueImportSummariesOutputSchema,
   GetMemoryOutputSchema,
@@ -166,8 +168,20 @@ export function createHttpMemoryClient(
       });
     },
 
+    async completeSourceTurn(input, context) {
+      return request("POST", "completeSourceTurn", SourceTurnCompleteOutputSchema, { body: input, context });
+    },
+
     async search(input, context) {
       return request("POST", "search", SearchOutputSchema, { body: input, context });
+    },
+
+    async embeddingInference(input, options) {
+      return request("POST", "embeddingInference", EmbeddingInferenceOutputSchema, {
+        body: input,
+        signal: options?.signal,
+        maxRetries: 0
+      });
     },
 
     async addMemory(input, context) {

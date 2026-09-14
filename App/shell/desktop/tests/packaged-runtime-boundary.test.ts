@@ -124,7 +124,7 @@ describe("desktop packaged runtime boundaries", () => {
       yaml: expect.any(String),
       zod: expect.any(String)
     });
-    expect(memoryPackage.version).toBe("2.1.1");
+    expect(memoryPackage.version).toBe("2.1.3");
     expect(memoryPackage.dependencies ?? {}).not.toHaveProperty("@memmy/local-api-contracts");
     expect(memoryPackage.dependencies ?? {}).not.toHaveProperty("@memmy/migrations");
     expect(memoryPackage.scripts?.prebuild).toBeUndefined();
@@ -358,7 +358,7 @@ describe("desktop packaged runtime boundaries", () => {
     }
   });
 
-  it("bundles the local embedding model in every desktop package variant", () => {
+  it("bundles local models and first-party plugins in every desktop package variant", () => {
     for (const configPath of [
       electronBuilderPath,
       unsignedElectronBuilderPath,
@@ -371,6 +371,11 @@ describe("desktop packaged runtime boundaries", () => {
       expect(config.extraResources).toContainEqual({
         from: "dist/embedding-models",
         to: "embedding-models",
+        filter: ["**/*"]
+      });
+      expect(config.extraResources).toContainEqual({
+        from: "dist/bundled-plugins",
+        to: "bundled-plugins",
         filter: ["**/*"]
       });
     }
@@ -1043,6 +1048,30 @@ describe("desktop packaged runtime boundaries", () => {
     expect(mainSource).toContain("if (response.status === 401)");
   });
 
+  it("exposes native operating-system file icons for real local files", () => {
+    const mainSource = readFileSync(mainSourcePath, "utf8");
+    const preloadSource = readFileSync(preloadSourcePath, "utf8");
+    const interfaceSource = readFileSync(desktopInterfacePath, "utf8");
+
+    expect(interfaceSource).toContain("export type DesktopSystemFileIconResult = string | null;");
+    expect(preloadSource).toContain("getPathForFile(file: File): string;");
+    expect(preloadSource).toContain("getSystemFileIcon(filePath: string): Promise<DesktopSystemFileIconResult>;");
+    expect(preloadSource).toContain("getSystemFolderIcon(kind: DesktopSystemFolderIconKind): Promise<DesktopSystemFileIconResult>;");
+    expect(preloadSource).toContain("showItemInFolder(filePath: string): Promise<void>;");
+    expect(preloadSource).toContain("webUtils.getPathForFile(file)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("memmy:get-system-file-icon", filePath)');
+    expect(preloadSource).toContain('ipcRenderer.invoke("memmy:get-system-folder-icon", kind)');
+    expect(preloadSource).toContain('ipcRenderer.invoke("memmy:show-item-in-folder", filePath)');
+    expect(mainSource).toContain('ipcMain.handle("memmy:get-system-file-icon"');
+    expect(mainSource).toContain('ipcMain.handle("memmy:get-system-folder-icon"');
+    expect(mainSource).toContain('ipcMain.handle("memmy:show-item-in-folder"');
+    expect(mainSource).toContain("shell.showItemInFolder(target)");
+    expect(mainSource).toContain('app.getFileIcon(filePath, { size: "large" })');
+    expect(mainSource).toContain('ipcMain.removeHandler("memmy:get-system-file-icon")');
+    expect(mainSource).toContain('ipcMain.removeHandler("memmy:get-system-folder-icon")');
+    expect(mainSource).toContain('ipcMain.removeHandler("memmy:show-item-in-folder")');
+  });
+
   it("uses packaged .cmd launchers on Windows and keeps the macOS profile flow", () => {
     const mainSource = readFileSync(mainSourcePath, "utf8");
     const preloadSource = readFileSync(preloadSourcePath, "utf8");
@@ -1529,7 +1558,8 @@ describe("desktop packaged runtime boundaries", () => {
     expect(source).toContain("InstallLocation is shared-looking or contains a protected path");
     expect(source).toContain("-IncludeMachineScope requires an already elevated PowerShell session");
     expect(source).toContain("This script can only run on Windows.");
-    expect(source).toContain("Type CLEAR MEMMY to continue");
+    expect(source).toContain("This permanently deletes Memmy application state and local data.");
+    expect(source).not.toContain("Read-Host");
   });
 
   it("keeps packaged CLI launchers on Memmy.app and ~/.memmy/config.yaml", () => {
@@ -1565,9 +1595,9 @@ describe("desktop packaged runtime boundaries", () => {
     expect(source).toContain('cp -R "$MEMORY_DIR/dist/viewer" "$RUNTIME_DIR/memory/dist/viewer"');
     expect(source).toContain('cp -R "$MEMORY_DIR/adapters" "$RUNTIME_DIR/memory/adapters"');
     expect(source).toContain(
-      'npm install --prefix "$RUNTIME_DIR/memory" --package-lock-only --ignore-scripts --os=darwin --cpu="$TARGET_CPU"'
+      'npm install --prefix "$RUNTIME_DIR/memory" --package-lock-only --ignore-scripts --install-links --os=darwin --cpu="$TARGET_CPU"'
     );
-    expect(source).toContain('npm ci --prefix "$RUNTIME_DIR/memory" --omit=dev --os=darwin --cpu="$TARGET_CPU"');
+    expect(source).toContain('npm ci --prefix "$RUNTIME_DIR/memory" --omit=dev --install-links --os=darwin --cpu="$TARGET_CPU"');
     expect(source).not.toContain('MEMORY_RUNTIME_CONTRACTS_DIR');
     expect(source).not.toContain('MEMORY_RUNTIME_MIGRATIONS_DIR');
     expect(source).toContain("node_modules/.bin/electron-rebuild");

@@ -180,6 +180,45 @@ describe("memmy-agent client", () => {
     expect(calls).toContain("/api/projects/project-1/environment/branch");
   });
 
+  it("loads session workspace files lazily", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      calls.push(`${url.pathname}${url.search}`);
+      if (url.pathname === "/webui/bootstrap") return json(bootstrap);
+      if (url.pathname.endsWith("/workspace/files")) {
+        return json({
+          root: { kind: "project", label: "Memmy" },
+          path: url.searchParams.get("path") ?? "",
+          entries: [{
+            name: "index.ts",
+            path: "src/index.ts",
+            kind: "file",
+            size: 12,
+            modifiedAt: "2026-08-25T08:00:00.000Z"
+          }],
+          truncated: false
+        });
+      }
+      return json({ error: "not found" }, 404);
+    });
+    const client = createMemmyAgentClient({
+      baseUrl: "http://127.0.0.1:18980",
+      fetchFn: fetchMock as typeof fetch
+    });
+
+    await expect(client.listWorkspaceFiles("websocket:chat-1", "src")).resolves.toMatchObject({
+      root: { kind: "project", label: "Memmy" },
+      path: "src",
+      entries: [{
+        name: "index.ts",
+        path: "src/index.ts",
+        kind: "file"
+      }]
+    });
+    expect(calls).toContain("/api/sessions/websocket%3Achat-1/workspace/files?path=src");
+  });
+
   it("prefers env override, then current origin, then local gateway default for base URL", () => {
     vi.stubEnv("VITE_MEMMY_AGENT_WEBUI_URL", "http://127.0.0.1:19000");
     expect(defaultMemmyAgentBaseUrl()).toBe("http://127.0.0.1:19000");
@@ -1933,6 +1972,49 @@ describe("memmy-agent client", () => {
       revision: 8
     });
     await expect(removal).resolves.toEqual({ outcome: "already_dequeued", revision: 8 });
+  });
+
+  it("sends question answers directly and resolves their acknowledgement", async () => {
+    const sockets: FakeSocket[] = [];
+    const client = createMemmyAgentClient({
+      baseUrl: "https://agent.local:18980",
+      clientId: "frontend-test",
+      fetchFn: vi.fn(async () => json(bootstrap)) as typeof fetch,
+      webSocketFactory: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket;
+      }
+    });
+    const connection = await connectReady(client, sockets);
+    const requestId = "66666666-6666-4666-8666-666666666666";
+    const response = connection.respondToQuestion("chat-question", {
+      requestId,
+      answers: [{
+        questionId: "choice",
+        selectedOptionIds: ["yes"],
+        otherText: "details"
+      }]
+    }, 1);
+    const frame = JSON.parse(sockets[0]!.sent.at(-1)!);
+    expect(frame).toEqual({
+      type: "agent_question_response",
+      chat_id: "chat-question",
+      request_id: requestId,
+      answers: [{
+        question_id: "choice",
+        selected_option_ids: ["yes"],
+        other_text: "details"
+      }]
+    });
+
+    sockets[0]!.emit({
+      event: "agent_question_response_result",
+      chat_id: "chat-question",
+      request_id: requestId,
+      ok: true
+    });
+    await expect(response).resolves.toBeUndefined();
   });
 
   it("sends one queue-steer control and terminates the original queued attempt", async () => {

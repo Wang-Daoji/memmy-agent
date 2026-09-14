@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +15,7 @@ import {
 } from "../../runtime-messages/events.js";
 import { loadConfig, resolveConfigEnvVars } from "../../../config/loader.js";
 import { VERSION } from "../../../version.js";
-import { Tool } from "./base.js";
+import { Tool, type ToolExecutionContext } from "./base.js";
 import { ToolRegistry } from "./registry.js";
 import { storeToolImageArtifact } from "../../../utils/artifacts.js";
 
@@ -31,6 +32,8 @@ const TRANSIENT_EXC_NAMES = new Set([
 
 const WINDOWS_SHELL_LAUNCHERS = new Set(["npx", "npm", "pnpm", "yarn", "bunx"]);
 const SANITIZE_RE = /_+/g;
+const MAX_TOOL_NAME_LENGTH = 64;
+const TOOL_NAME_HASH_LENGTH = 12;
 const RELOAD_LOCKS = new WeakMap<object, Promise<void>>();
 
 type Runtime = {
@@ -78,11 +81,26 @@ class SdkClientSession {
     return this.client.listTools();
   }
 
-  async callTool(name: string, args: Record<string, any>, timeout: number): Promise<any> {
+  async callTool(
+    name: string,
+    args: Record<string, any>,
+    timeout: number,
+    meta?: Record<string, string>,
+    signal?: AbortSignal | null,
+  ): Promise<any> {
     return this.client.callTool(
-      { name, arguments: args },
+      { name, arguments: args, ...(meta ? { _meta: meta } : {}) },
       undefined,
-      { timeout: timeout * 1000 },
+      {
+        timeout: timeout * 1000,
+        maxTotalTimeout: timeout * 1000,
+        resetTimeoutOnProgress: true,
+        // Request a progress token even when callers do not surface progress.
+        // Local interactive plugin calls use it for transport keepalives while
+        // they are legitimately waiting for user input.
+        onprogress: () => undefined,
+        ...(signal ? { signal } : {})
+      },
     );
   }
 
@@ -130,7 +148,14 @@ async function loadRuntime(): Promise<Runtime> {
 }
 
 export function sanitizeName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(SANITIZE_RE, "_");
+  const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(SANITIZE_RE, "_");
+  if (sanitized.length <= MAX_TOOL_NAME_LENGTH) return sanitized;
+
+  // OpenAI-compatible APIs cap function names at 64 characters. Keep a readable
+  // prefix and a deterministic digest so similarly prefixed MCP tools stay unique.
+  const digest = createHash("sha256").update(sanitized).digest("hex").slice(0, TOOL_NAME_HASH_LENGTH);
+  const prefixLength = MAX_TOOL_NAME_LENGTH - TOOL_NAME_HASH_LENGTH - 1;
+  return `${sanitized.slice(0, prefixLength)}_${digest}`;
 }
 
 export function isTransient(error: unknown): boolean {
@@ -364,6 +389,7 @@ export class MCPToolWrapper extends Tool {
   private toolDescription: string;
   private toolParameters: Record<string, any>;
   private toolTimeout: number;
+  private sendMemmyContext: boolean;
 
   constructor(session: any, serverName: string, toolDef: any, toolTimeout = 30) {
     super();
@@ -373,6 +399,7 @@ export class MCPToolWrapper extends Tool {
     this.toolDescription = toolDef.description || toolDef.name;
     this.toolParameters = normalizeSchemaForOpenAI(toolDef.inputSchema ?? { type: "object", properties: {} });
     this.toolTimeout = toolTimeout;
+    this.sendMemmyContext = serverName === "plugins";
   }
 
   get name(): string {
@@ -387,11 +414,12 @@ export class MCPToolWrapper extends Tool {
     return this.toolParameters;
   }
 
-  async execute(params: Record<string, any> = {}): Promise<string> {
+  async execute(params: Record<string, any> = {}, context?: ToolExecutionContext): Promise<string> {
+    const meta = this.sendMemmyContext ? pluginCallMeta(context) : undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const result: any = await timeoutPromise(
-          this.session.callTool(this.originalName, params, this.toolTimeout),
+          this.session.callTool(this.originalName, params, this.toolTimeout, meta, context?.abortSignal),
           this.toolTimeout,
           "timeout",
         );
@@ -406,6 +434,14 @@ export class MCPToolWrapper extends Tool {
     }
     return "(MCP tool call failed)";
   }
+}
+
+function pluginCallMeta(context?: ToolExecutionContext): Record<string, string> | undefined {
+  const entries = [
+    ["memmy.dev/session-key", context?.sessionKey],
+    ["memmy.dev/tool-call-id", context?.callId],
+  ].filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0);
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 export class MCPResourceWrapper extends Tool {

@@ -474,6 +474,31 @@ export const CompleteTurnOutputSchema = z.object({
 });
 export type CompleteTurnOutput = z.infer<typeof CompleteTurnOutputSchema>;
 
+/** Completed native Agent turn shared by Hook and automatic scanning. */
+export const SourceTurnCompleteInputSchema = CompleteTurnInputSchema.omit({ sessionId: true }).extend({
+  sessionId: NonEmptyStringSchema.optional(),
+  sourceTurn: z.object({
+    source: NonEmptyStringSchema,
+    profileId: NonEmptyStringSchema,
+    conversationId: NonEmptyStringSchema,
+    turnId: NonEmptyStringSchema,
+    startedAt: IsoTimeSchema,
+    completedAt: IsoTimeSchema,
+    sequence: z.number().int().nonnegative().optional(),
+    completionEvidence: NonEmptyStringSchema
+  }),
+  channel: z.enum(["hook", "agent_source_scan"]),
+  workspacePath: z.string().optional()
+});
+export type SourceTurnCompleteInput = z.infer<typeof SourceTurnCompleteInputSchema>;
+
+export const SourceTurnCompleteOutputSchema = z.object({
+  status: z.enum(["stored", "existing", "rejected", "pending", "conflict"]),
+  reason: z.string().optional(),
+  result: CompleteTurnOutputSchema.partial({ changeSeq: true }).optional()
+});
+export type SourceTurnCompleteOutput = z.infer<typeof SourceTurnCompleteOutputSchema>;
+
 /** Definition for search input. */
 export const SearchInputSchema = RuntimeRequestFieldsSchema.extend({
   query: NonEmptyStringSchema,
@@ -484,6 +509,33 @@ export const SearchInputSchema = RuntimeRequestFieldsSchema.extend({
   verbose: z.boolean().optional()
 });
 export type SearchInput = z.infer<typeof SearchInputSchema>;
+
+/** Generate vectors with the embedding model currently owned by the Memory runtime. */
+export const EmbeddingInferenceInputSchema = z.object({
+  texts: z.array(z.string().min(1).max(16_000)).min(1).max(256),
+  role: z.enum(["query", "document"]).default("document")
+}).superRefine((input, context) => {
+  const totalCharacters = input.texts.reduce((sum, text) => sum + text.length, 0);
+  if (totalCharacters > 200_000) {
+    context.addIssue({
+      code: "custom",
+      path: ["texts"],
+      message: "Total embedding input exceeds 200000 characters"
+    });
+  }
+});
+export type EmbeddingInferenceInput = z.input<typeof EmbeddingInferenceInputSchema>;
+
+export const EmbeddingInferenceOutputSchema = z.object({
+  embeddings: z.array(z.array(z.number())),
+  model: z.object({
+    provider: z.string().min(1),
+    model: z.string().min(1),
+    mode: z.enum(["cloud", "local", "custom"]),
+    dimension: z.number().int().positive()
+  })
+});
+export type EmbeddingInferenceOutput = z.infer<typeof EmbeddingInferenceOutputSchema>;
 
 /** Schema for default search output. */
 export const DefaultSearchOutputSchema = z.object({
