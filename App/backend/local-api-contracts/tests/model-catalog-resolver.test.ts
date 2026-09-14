@@ -228,4 +228,47 @@ describe("resolveAssignedModel", () => {
       capability: "memory_summary"
     })).toEqual({ ok: false, code: "model_selection_unavailable" });
   });
+
+  it("resolves bedrock-converse and declared input modalities", () => {
+    const current: RuntimeModelCatalog = {
+      providers: {
+        bedrock: {
+          endpoints: {
+            chat: {
+              apiBase: "https://bedrock-runtime.us-west-2.amazonaws.com",
+              protocol: "bedrock-converse",
+              region: "us-west-2"
+            }
+          }
+        }
+      },
+      modelPresets: {
+        custom: {
+          provider: "bedrock",
+          endpoint: "chat",
+          model: "anthropic.claude-sonnet-5",
+          source: "byok",
+          capabilities: ["agent"],
+          inputModalities: ["text", "image"]
+        }
+      },
+      modelAssignments: {
+        byok: {
+          agent: { candidates: ["custom"], default: "custom" }
+        }
+      }
+    };
+    const resolved = resolveAssignedModel({
+      catalog: current,
+      mode: "byok",
+      capability: "agent"
+    });
+
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.context.protocol).toBe("bedrock-converse");
+    expect(resolved.context.provider).toBe("bedrock");
+    expect(resolved.context.inputModalities).toEqual(["text", "image"]);
+    expect(resolved.provider.apiBase).toBe("https://bedrock-runtime.us-west-2.amazonaws.com");
+  });
 });

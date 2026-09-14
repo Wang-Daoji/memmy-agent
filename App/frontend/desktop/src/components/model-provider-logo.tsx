@@ -17,6 +17,7 @@ export { memmyCoverLogoUrl };
 
 const PROTOCOL_LOGO_URLS: Record<Protocol, string> = {
   openai: openaiLogoUrl,
+  openai_responses: openaiLogoUrl,
   anthropic: anthropicLogoUrl,
   gemini: geminiLogoUrl,
   deepseek: deepseekLogoUrl,
@@ -27,7 +28,8 @@ const PROTOCOL_LOGO_URLS: Record<Protocol, string> = {
   baidu: baiduLogoUrl,
   doubao: doubaoLogoUrl,
   stepfun: stepfunLogoUrl,
-  xiaomi: xiaomiLogoUrl
+  xiaomi: xiaomiLogoUrl,
+  custom: openaiLogoUrl
 };
 
 /** Resolve a logo URL for a protocol or free-form provider string. */

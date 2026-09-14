@@ -98,6 +98,7 @@ function makeProviderCore(
   const model = opts.model ?? resolved.model;
   const providerName = config.getProviderName(model, { preset: resolved });
   const providerConfig = config.getProvider(model, { preset: resolved });
+  const endpoint = exactEndpoint(config, providerConfig, resolved);
   const spec = providerName ? findByName(providerName) : null;
   const backend = spec?.backend ?? "openai_compat";
   const init = providerInit(config, providerConfig, spec, model, resolved);
@@ -118,7 +119,11 @@ function makeProviderCore(
   else if (backend === "azure_openai") provider = new AzureOpenAIProvider(init);
   else if (backend === "github_copilot") provider = new GitHubCopilotProvider(init);
   else if (backend === "anthropic") provider = new AnthropicProvider(init);
-  else if (backend === "bedrock") provider = new BedrockProvider({ ...init, region: (providerConfig as any)?.region ?? null, profile: (providerConfig as any)?.profile ?? null });
+  else if (backend === "bedrock") provider = new BedrockProvider({
+    ...init,
+    region: endpoint?.region ?? (providerConfig as { region?: string | null })?.region ?? null,
+    profile: endpoint?.profile ?? (providerConfig as { profile?: string | null })?.profile ?? null,
+  });
   else provider = new OpenAICompatProvider(init);
 
   provider.generation = resolved.toGenerationSettings();
