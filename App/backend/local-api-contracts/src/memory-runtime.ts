@@ -56,7 +56,8 @@ export const JobTypeSchema = z.enum([
   "project_environment_profile",
   "skill_crystallization",
   "skill_trial_resolve",
-  "work_memory_extract"
+  "work_memory_extract",
+  "work_memory_idle_flush"
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

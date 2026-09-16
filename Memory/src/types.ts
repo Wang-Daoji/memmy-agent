@@ -82,7 +82,8 @@ export type JobType =
   | "project_environment_profile"
   | "skill_crystallization"
   | "skill_trial_resolve"
-  | "work_memory_extract";
+  | "work_memory_extract"
+  | "work_memory_idle_flush";
 
 export interface RuntimeNamespace {
   source: string;
