@@ -48,7 +48,12 @@ describe("WebSocket agent question responses", () => {
     });
 
     await expect(pending).resolves.toContain('"status":"answered"');
-    expect(sent(ws)).toContainEqual({
+    // The broadcast row also carries its transcript_offset identity stamp,
+    // which this case does not assert.
+    expect(sent(ws).map(({ transcript_offset: _offset, ...rest }) => {
+      void _offset;
+      return rest;
+    })).toContainEqual({
       event: "agent_question_response",
       chat_id: "chat-1",
       request_id: requestId,
