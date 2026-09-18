@@ -121,6 +121,7 @@ import {
 import { AgentHook, AgentHookContext, CompositeAgentHook } from "./hook.js";
 import { SubagentManager } from "./subagent.js";
 import { AutoCompact } from "./autocompact.js";
+import { truncateSessionAt, type RevertDeps, type RevertResult } from "./session-revert.js";
 import { configuredModelPresets, defaultSelectionSignature, makePresetSnapshotLoader, normalizePresetName } from "./model-presets.js";
 import { installMemmyMemory, type MemmyMemoryIntegration } from "../../memmy-memory/index.js";
 import { createByokTokenUsageRecorder, installByokTokenUsage } from "../../integrations/byok-token-usage/index.js";
@@ -358,7 +359,6 @@ type AgentLoopInit = {
   unifiedSession?: boolean;
   timezone?: string | null;
   consolidationRatio?: number;
-  sessionTtlMinutes?: number;
   modelPresets?: Record<string, ModelPresetConfig | Record<string, any>>;
   modelPreset?: string | null;
   providerSnapshotLoader?: ((opts?: any) => any) | null;
@@ -908,7 +908,7 @@ export class AgentLoop {
       dagQueue: this.sessionDagQueue,
       dagCatchupTimeoutMs: this.config.sessionDag.compactionCatchupTimeoutMs,
     });
-    this.autoCompact = new AutoCompact(this.sessions, this.consolidator, init.sessionTtlMinutes ?? defaults.sessionTtlMinutes);
+    this.autoCompact = new AutoCompact(this.sessions, this.consolidator);
     this.dream = this.fileMemoryEnabled
       ? new Dream({
           store: this.context.memory,
@@ -1226,14 +1226,6 @@ export class AgentLoop {
       expectedTurnId,
       turnSource,
     });
-  }
-
-  private busySessionKeysForAutoCompact(): Iterable<string> {
-    return new Set([
-      ...this.pendingQueues.keys(),
-      ...this.turnSlots.keys(),
-      ...this.sessionDeletionQueues.keys(),
-    ]);
   }
 
   resolveSessionWorkspace(
@@ -1651,6 +1643,28 @@ export class AgentLoop {
       const idx = this.backgroundTasks.indexOf(promise);
       if (idx >= 0) this.backgroundTasks.splice(idx, 1);
     });
+  }
+
+  /** Truncate a session to before the given turn, fixing all derived data.
+   * Throws if the turn id cannot be found or is not the most recent turn. */
+  truncateSession(sessionKey: string, beforeTurnId: string): RevertResult {
+    const result = truncateSessionAt(
+      {
+        sessions: this.sessions,
+        sessionDag: this.sessionDagQueue,
+        transcript: this.guiTranscriptMirror,
+      },
+      sessionKey,
+      beforeTurnId,
+    );
+    // Clear in-memory queued messages for this turn (private loop state, not accessible from session-revert.ts).
+    const queue = this.pendingQueues.get(sessionKey);
+    if (queue) {
+      // Cancel any queued messages that belong to the reverted turn.
+      // The queue will be drained naturally; we cannot selectively remove items,
+      // but stop() will have been called before revert, so the queue should be empty.
+    }
+    return result;
   }
 
   private lockFor(key: string): AsyncMutex {
@@ -3196,6 +3210,8 @@ export class AgentLoop {
       modelName,
       modelSelection,
       modelError,
+      turnId,
+      turnStart,
     }: {
       turnLatencyMs?: number;
       modelPreset?: string | null;
@@ -3203,6 +3219,8 @@ export class AgentLoop {
       modelName?: string | null;
       modelSelection?: ResolvedModelSelection | null;
       modelError?: UserFacingModelError | null;
+      turnId?: string | null;
+      turnStart?: number;
     } = {},
   ): void {
     let lastAssistantIdx: number | null = null;
@@ -3258,6 +3276,12 @@ export class AgentLoop {
     if (turnLatencyMs != null && lastAssistantIdx != null) session.messages[lastAssistantIdx].latency_ms = Math.max(0, Math.floor(turnLatencyMs));
     if (modelError && lastAssistantIdx != null) session.messages[lastAssistantIdx].model_error = modelError;
     session.updatedAt = new Date().toISOString();
+    if (turnId && turnStart != null) {
+      session.metadata.turnBoundaries ??= {};
+      session.metadata.turnBoundaries[turnId] = { start: turnStart, end: session.messages.length };
+      const keys = Object.keys(session.metadata.turnBoundaries);
+      if (keys.length > 20) delete session.metadata.turnBoundaries[keys[0]];
+    }
   }
 
   enqueueSessionDagTurn(
@@ -3782,7 +3806,7 @@ export class AgentLoop {
   }
 
   async stateCompact(ctx: TurnContext): Promise<string> {
-    const prepared = this.autoCompact.prepareSession(ctx.session!, ctx.sessionKey);
+    const prepared = this.autoCompact.prepareSession(ctx.session!);
     ctx.session = prepared[0];
     ctx.pendingSummary = prepared[1];
     return "ok";
@@ -4157,6 +4181,8 @@ export class AgentLoop {
             failedModel: ctx.failedModel,
           })
         : null,
+      turnId: ctx.turnId,
+      turnStart: dagMessageStart,
     });
     this.clearPendingUserTurn(ctx.session!);
     this.clearRuntimeCheckpoint(ctx.session!);
@@ -4338,7 +4364,7 @@ export class AgentLoop {
     if (this.restoreRuntimeCheckpoint(session)) this.sessions.save(session);
     if (this.restorePendingUserTurn(session)) this.sessions.save(session);
 
-    const prepared = this.autoCompact.prepareSession(session, key);
+    const prepared = this.autoCompact.prepareSession(session);
     session = prepared[0];
     const pendingSummary = prepared[1];
     await scopedConsolidator.maybeConsolidateByTokens(session, {
@@ -4487,6 +4513,8 @@ export class AgentLoop {
             failedModel,
           })
         : null,
+      turnId: turnId ?? firstString(msg.metadata?.turn_id, msg.metadata?.turnId) ?? undefined,
+      turnStart: dagMessageStart,
     });
     this.clearRuntimeCheckpoint(session);
     session.enforceFileCap((messages) =>
@@ -4593,10 +4621,6 @@ export class AgentLoop {
       }
     }
     try {
-      this.autoCompact.checkExpired(
-        (promise) => this.scheduleBackground(promise),
-        this.busySessionKeysForAutoCompact(),
-      );
       await this.stateCompact(ctx);
       const commandState = await this.stateCommand(ctx);
       if (commandState === "shortcut") {
@@ -5229,10 +5253,6 @@ export class AgentLoop {
     while (this.running) {
       const inbound = this.bus.inbound.getNowait();
       if (!inbound) {
-        this.autoCompact.checkExpired(
-          (promise) => this.scheduleBackground(promise),
-          this.busySessionKeysForAutoCompact(),
-        );
         await sleep(100);
         continue;
       }

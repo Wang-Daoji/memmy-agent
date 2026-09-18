@@ -1623,17 +1623,4 @@ describe("AgentLoop Turn admission", () => {
     loop.stop();
     await running;
   });
-
-  it("keeps direct, Slot-backed, and deletion-barrier Sessions out of auto-compaction", () => {
-    const loop = makeLoop();
-    loop.pendingQueues.set("cli:direct", {} as any);
-    loop.turnSlots.set("telegram:chat", [{} as any]);
-    loop.sessionDeletionQueues.set("websocket:deleting", []);
-
-    expect(new Set((loop as any).busySessionKeysForAutoCompact())).toEqual(new Set([
-      "cli:direct",
-      "telegram:chat",
-      "websocket:deleting",
-    ]));
-  });
 });

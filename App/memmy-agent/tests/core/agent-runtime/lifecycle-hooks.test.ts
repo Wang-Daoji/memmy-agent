@@ -171,27 +171,6 @@ describe("lifecycle hooks", () => {
     expect(compactEvents[1].context.compaction).toMatchObject({ kind: "token", changed: true, summary: "summary", error: null });
   });
 
-  it("emits beforeCompaction and afterCompaction around idle compaction", async () => {
-    const hook = new RecordingLifecycleHook();
-    const loop = makeLoop([hook]);
-    const session = loop.sessions.getOrCreate("cli:idle");
-    session.messages = [
-      { role: "user", content: "old" },
-      { role: "assistant", content: "middle" },
-      { role: "user", content: "recent" },
-    ];
-    loop.sessions.save(session);
-    const archive = vi.spyOn(loop.consolidator, "archive").mockResolvedValue("idle summary");
-
-    await loop.consolidator.compactIdleSession("cli:idle", 1);
-
-    expect(archive).toHaveBeenCalled();
-    const compactEvents = hook.events.filter((event) => event.name.includes("Compaction"));
-    expect(compactEvents.map((event) => event.name)).toEqual(["beforeCompaction", "afterCompaction"]);
-    expect(compactEvents[0].context.compaction).toMatchObject({ kind: "idle", maxSuffix: 1 });
-    expect(compactEvents[1].context.compaction).toMatchObject({ kind: "idle", changed: true, summary: "idle summary", error: null });
-  });
-
   it("emits subagentStart and subagentStop for spawned subagents", async () => {
     const hook = new RecordingLifecycleHook();
     const loop = makeLoop([hook]);

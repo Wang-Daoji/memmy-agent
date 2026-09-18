@@ -3992,6 +3992,49 @@ export class WebSocketChannel extends BaseChannel {
       }
       return;
     }
+    if (type === "revert") {
+      const chatId = typeof envelope.chat_id === "string" && isValidGuiChatId(envelope.chat_id)
+        ? envelope.chat_id
+        : "";
+      if (!chatId) return this.sendEvent(connection, "error", { detail: "invalid chat_id" });
+      const beforeTurnId = typeof envelope.before_turn_id === "string"
+        && envelope.before_turn_id.trim().length > 0
+        && envelope.before_turn_id.length <= 256
+        ? envelope.before_turn_id.trim()
+        : "";
+      if (!beforeTurnId) {
+        return this.sendEvent(connection, "error", { chat_id: chatId, detail: "invalid before_turn_id" });
+      }
+      const sessionKey = this.canonicalSessionKeyForChatId(chatId);
+      if (!sessionKey) {
+        return this.sendEvent(connection, "error", { chat_id: chatId, detail: "session_not_found" });
+      }
+      // Reject if a turn is currently active.
+      if (this.activeTurnIdByChatId.has(chatId)) {
+        return this.sendEvent(connection, "error", { chat_id: chatId, detail: "revert_failed", reason: "turn_in_progress" });
+      }
+      if (!this.truncateSession) {
+        return this.sendEvent(connection, "error", { chat_id: chatId, detail: "revert_failed", reason: "not_supported" });
+      }
+      let result: { fromIndex: number; fromTurnId: string };
+      try {
+        result = this.truncateSession(sessionKey, beforeTurnId);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return this.sendEvent(connection, "error", { chat_id: chatId, detail: "revert_failed", reason });
+      }
+      await this.transcriptMonitor?.drain();
+      await this.sendTurnPayload(chatId, {
+        event: "reverted",
+        chat_id: chatId,
+        from_turn_id: result.fromTurnId,
+        from_message_index: result.fromIndex,
+      });
+      if (isExternalGuiChatId(chatId)) {
+        this.queueGlobalSessionUpdated(chatId, "metadata");
+      }
+      return;
+    }
     if (type === "message") {
       const chatId = envelope.chat_id;
       const content = envelope.content;

@@ -61,6 +61,12 @@ export class SessionDagQueueManager {
     this.queues.clear();
   }
 
+  /** Delete the given turn and all later turns from the session's DAG store.
+   * Used when reverting a session to an earlier point. */
+  deleteTurnsFromSession(sessionKey: string, fromTurnId: string): void {
+    this.queueFor(sessionKey).deleteTurnsFrom(fromTurnId);
+  }
+
   async closeSession(sessionKey: string): Promise<void> {
     const queue = this.queues.get(sessionKey);
     if (!queue) return;
@@ -171,6 +177,10 @@ class SessionDagQueue {
     const target = this.store.getTurn(turnId);
     if (!target) return false;
     return this.store.listTurns(["blocked"]).some((turn) => turn.message_start <= target.message_start);
+  }
+
+  deleteTurnsFrom(fromTurnId: string): void {
+    this.store.deleteTurnsFrom(fromTurnId);
   }
 
   close(): Promise<void> {

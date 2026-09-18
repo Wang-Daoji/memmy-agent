@@ -159,7 +159,7 @@ describe("AgentLoop replay token budget", () => {
 
     const reloaded = loop.sessions.getOrCreate("cli:test");
     expect(reloaded.metadata.lastSummary.text).toBe("User discussed project status.");
-    const [, pending] = loop.autoCompact.prepareSession(reloaded, "cli:test");
+    const [, pending] = loop.autoCompact.prepareSession(reloaded);
     expect(pending).toContain("User discussed project status.");
     expect(reloaded.metadata).toHaveProperty("lastSummary");
   });
