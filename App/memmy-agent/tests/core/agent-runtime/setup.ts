@@ -25,7 +25,6 @@ export function makeLoop(
   {
     model = "test-model",
     contextWindowTokens = 128_000,
-    sessionTtlMinutes = 0,
     maxMessages = 120,
     unifiedSession = false,
     toolsConfig = null,
@@ -34,7 +33,6 @@ export function makeLoop(
   }: {
     model?: string;
     contextWindowTokens?: number;
-    sessionTtlMinutes?: number;
     maxMessages?: number;
     unifiedSession?: boolean;
     toolsConfig?: any;
@@ -49,7 +47,6 @@ export function makeLoop(
     workspace: root,
     model,
     contextWindowTokens,
-    sessionTtlMinutes,
     maxMessages,
     unifiedSession,
     modelPresets: modelPresets ?? undefined,

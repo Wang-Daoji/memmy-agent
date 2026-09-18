@@ -380,7 +380,6 @@ export class AgentDefaults extends Base {
   botIcon = "🍚";
   unifiedSession = false;
   disabledSkills: string[] = [];
-  sessionTtlMinutes = 0;
   maxMessages = 120;
   consolidationRatio = 0.5;
   dream: DreamConfig;
@@ -415,17 +414,15 @@ export class AgentDefaults extends Base {
     this.botIcon = pick(init, ["botIcon"], this.botIcon);
     this.unifiedSession = pick(init, ["unifiedSession"], false);
     this.disabledSkills = assertStringArray("disabledSkills", pick(init, ["disabledSkills"], []));
-    this.sessionTtlMinutes = pick(init, ["idleCompactAfterMinutes", "sessionTtlMinutes"], 0);
     this.maxMessages = pick(init, ["maxMessages"], 120);
     assertIntRange("maxMessages", this.maxMessages, 0);
     this.consolidationRatio = pick(init, ["consolidationRatio"], 0.5);
-    assertIntRange("maxConcurrentSubagents", this.maxConcurrentSubagents, 1);
     this.providerRetryMode = assertOneOf("providerRetryMode", this.providerRetryMode, [
       "standard",
       "persistent",
     ] as const);
     assertIntRange("toolHintMaxLength", this.toolHintMaxLength, 20, 500);
-    assertIntRange("sessionTtlMinutes", this.sessionTtlMinutes, 0);
+    assertIntRange("maxConcurrentSubagents", this.maxConcurrentSubagents, 1);
     assertNumberRange("consolidationRatio", this.consolidationRatio, 0.1, 0.95);
     this.dream = init.dream instanceof DreamConfig ? init.dream : new DreamConfig(init.dream ?? {});
   }
@@ -452,7 +449,6 @@ export class AgentDefaults extends Base {
       botIcon: this.botIcon,
       unifiedSession: this.unifiedSession,
       disabledSkills: this.disabledSkills,
-      idleCompactAfterMinutes: this.sessionTtlMinutes,
       maxMessages: this.maxMessages,
       consolidationRatio: this.consolidationRatio,
       dream: this.dream.toObject(),

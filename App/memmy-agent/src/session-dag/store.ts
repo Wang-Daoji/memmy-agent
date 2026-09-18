@@ -179,6 +179,26 @@ export class SessionDagStore {
     this.setMeta("last_processed_turn_id", turnId);
   }
 
+  /** Delete the turn with the given id and all later turns (by message_start), plus any
+   * nodes and edges whose created_turn_id or updated_turn_id references a deleted turn.
+   * Used when reverting a session to an earlier point. */
+  deleteTurnsFrom(turnId: string): void {
+    const turn = this.getTurn(turnId);
+    if (!turn) return;
+    const cutStart = turn.message_start;
+    const transaction = this.db.transaction(() => {
+      const turnsToDelete = (this.db.prepare(
+        "SELECT turn_id FROM dag_turns WHERE message_start >= ?",
+      ).all(cutStart) as Array<{ turn_id: string }>).map((row) => row.turn_id);
+      if (turnsToDelete.length === 0) return;
+      const placeholders = turnsToDelete.map(() => "?").join(",");
+      this.db.prepare(`DELETE FROM dag_edges WHERE created_turn_id IN (${placeholders})`).run(...turnsToDelete);
+      this.db.prepare(`DELETE FROM dag_nodes WHERE created_turn_id IN (${placeholders}) OR updated_turn_id IN (${placeholders})`).run(...turnsToDelete, ...turnsToDelete);
+      this.db.prepare(`DELETE FROM dag_turns WHERE turn_id IN (${placeholders})`).run(...turnsToDelete);
+    });
+    transaction();
+  }
+
   getMeta(key: string): string | null {
     const row = this.db.prepare("SELECT value FROM dag_meta WHERE key = ?").get(key) as { value: string } | undefined;
     return row?.value ?? null;

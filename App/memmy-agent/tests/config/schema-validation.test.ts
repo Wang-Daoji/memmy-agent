@@ -225,8 +225,6 @@ describe("config schema validation", () => {
     expect(() => new AgentDefaults({ providerRetryMode: "forever" })).toThrow(/providerRetryMode/);
     expect(() => new AgentDefaults({ toolHintMaxLength: 19 })).toThrow(/toolHintMaxLength/);
     expect(() => new AgentDefaults({ toolHintMaxLength: 501 })).toThrow(/toolHintMaxLength/);
-    expect(() => new AgentDefaults({ sessionTtlMinutes: -1 })).toThrow(/sessionTtlMinutes/);
-    expect(() => new AgentDefaults({ idleCompactAfterMinutes: -1 })).toThrow(/sessionTtlMinutes/);
     expect(() => new AgentDefaults({ maxMessages: -1 })).toThrow(/maxMessages/);
     expect(() => new AgentDefaults({ consolidationRatio: 0.05 })).toThrow(/consolidationRatio/);
     expect(() => new AgentDefaults({ consolidationRatio: 1 })).toThrow(/consolidationRatio/);
@@ -235,7 +233,6 @@ describe("config schema validation", () => {
       maxConcurrentSubagents: 1,
       providerRetryMode: "persistent",
       toolHintMaxLength: 20,
-      sessionTtlMinutes: 0,
       maxMessages: 0,
       consolidationRatio: 0.95,
     });
@@ -243,7 +240,6 @@ describe("config schema validation", () => {
     expect(defaults.maxConcurrentSubagents).toBe(1);
     expect(defaults.providerRetryMode).toBe("persistent");
     expect(defaults.toolHintMaxLength).toBe(20);
-    expect(defaults.sessionTtlMinutes).toBe(0);
     expect(defaults.maxMessages).toBe(0);
     expect(defaults.consolidationRatio).toBe(0.95);
   });

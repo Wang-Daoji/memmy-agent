@@ -29,7 +29,6 @@ function makeLoop(extra: Record<string, any> = {}): AgentLoop {
 
 function prepareProcessLoop(loop: AgentLoop): void {
   (loop.consolidator as any).maybeConsolidateByTokens = vi.fn(async () => false);
-  (loop.autoCompact as any).checkExpired = vi.fn();
   (loop.autoCompact as any).prepareSession = vi.fn((session: Session) => [session, null]);
   (loop.commands as any).dispatch = vi.fn(async () => null);
 }

@@ -515,25 +515,4 @@ describe("Session DAG integration", () => {
     }
   });
 
-  it("DAG mode does not run idle text compaction", async () => {
-    const root = tmpRoot();
-    const sessions = new SessionManager(path.join(root, "sessions"));
-    const session = new Session({ key: "cli:dag-idle" });
-    session.messages = [{ role: "user", content: "old" }, { role: "assistant", content: "reply" }];
-    sessions.save(session);
-    const consolidator = new Consolidator({
-      store: new MemoryStore(root),
-      provider: provider(),
-      model: "test-model",
-      sessions,
-      contextWindowTokens: 1000,
-      summaryMode: "dag",
-    });
-    const archive = vi.spyOn(consolidator, "archive");
-
-    await expect(consolidator.compactIdleSession("cli:dag-idle", 1)).resolves.toBeNull();
-
-    expect(archive).not.toHaveBeenCalled();
-    expect(sessions.getOrCreate("cli:dag-idle").lastConsolidated).toBe(0);
-  });
 });
