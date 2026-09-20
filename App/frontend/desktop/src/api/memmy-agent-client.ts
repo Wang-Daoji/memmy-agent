@@ -555,7 +555,9 @@ export type UploadAgentMediaInput = {
   mime: UploadedAgentMedia["mime"];
 };
 
-export type MemmyAgentMediaInput = UploadedAgentMedia;
+/** The wire only needs the gateway media path; callers may pass a freshly uploaded
+ * attachment or one restored from a sent message. */
+export type MemmyAgentMediaInput = Pick<UploadedAgentMedia, "path">;
 
 export type MemmyAgentMediaKind = "image" | "video" | "file";
 export type MemmyAgentUiLanguage = "zh-CN" | "en-US";

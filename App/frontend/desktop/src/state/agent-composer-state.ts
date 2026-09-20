@@ -48,7 +48,26 @@ export interface PendingFileAttachment extends PendingAttachmentBase {
   extension: string;
 }
 
-export type PendingAttachment = PendingImage | PendingFileAttachment;
+/**
+ * An attachment restored from an already-sent message (used when editing the
+ * last user turn). The file already lives in the gateway media directory, so
+ * it is resent by path and never re-uploaded.
+ */
+export interface PendingUploadedAttachment extends PendingAttachmentBase {
+  kind: "image" | "file";
+  status: "ready";
+  uploaded: true;
+  /** Absolute path inside the gateway media directory; goes straight into media_paths. */
+  serverPath: string;
+  /** Signed gateway URL for preview; only present for images. */
+  previewUrl?: string;
+}
+
+export type PendingAttachment = PendingImage | PendingFileAttachment | PendingUploadedAttachment;
+
+export function isPendingUploadedAttachment(item: PendingAttachment): item is PendingUploadedAttachment {
+  return "uploaded" in item && item.uploaded === true;
+}
 
 export function agentChatScopeKey(currentChatId: string | null, newChatRequestId: number): string {
   return currentChatId ?? `draft-${newChatRequestId}`;

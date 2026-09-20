@@ -56,9 +56,12 @@ import {
   fileToPendingAttachment,
   filterGoalModeSlashCommands,
   filterProjectTargetPickerProjects,
+  isPendingUploadedAttachment,
+  messageMediaToPendingAttachments,
   resolveProjectTargetPickerActiveIndex,
   validateAgentMediaFiles,
-  type PendingFileAttachment
+  type PendingFileAttachment,
+  type PendingUploadedAttachment
 } from "../home-page.js";
 import {
   ComposerHighlightedTextarea,
@@ -1294,6 +1297,51 @@ describe("HomePage", () => {
     expect(conversationBlock).toContain("bottom: calc(100% + 8px);");
   });
 
+  it("renders restored attachments in the preview strip without a size or a broken thumbnail", () => {
+    const restoredImage: PendingUploadedAttachment = {
+      id: "restored-image",
+      sourceKey: "edit:turn-1",
+      fileName: "shot.png",
+      kind: "image",
+      status: "ready",
+      originalBytes: 0,
+      uploaded: true,
+      serverPath: "/media/websocket/webui/shot.png",
+      previewUrl: "http://agent.local/api/media/sig/shot"
+    };
+    const restoredFile: PendingUploadedAttachment = {
+      id: "restored-file",
+      sourceKey: "edit:turn-1",
+      fileName: "报告.pdf",
+      kind: "file",
+      status: "ready",
+      originalBytes: 0,
+      uploaded: true,
+      serverPath: "/media/websocket/webui/报告.pdf"
+    };
+    const html = renderToString(
+      <ComposerMediaPreviewStrip
+        items={[restoredImage, restoredFile, readyFile({ id: "local", fileName: "notes.txt", originalBytes: 512, uploadMime: "text/plain", extension: ".txt" })]}
+        onRemove={() => undefined}
+        removeLabel="移除"
+      />
+    );
+    const compactHtml = html.replace(/<!-- -->/g, "");
+
+    // Restored image previews from its signed gateway URL.
+    expect(html).toContain('src="http://agent.local/api/media/sig/shot"');
+    // Extension is inferred from the filename since restored items carry no mime/extension.
+    expect(compactHtml).toContain(">PNG<");
+    expect(compactHtml).toContain(">PDF<");
+    // No byte count is known for restored items, so no " · <size>" segment is rendered for them...
+    expect(compactHtml).not.toContain("PNG · ");
+    expect(compactHtml).not.toContain("PDF · ");
+    // ...while a genuinely local attachment in the same strip still shows its size.
+    expect(compactHtml).toContain("TXT · 512 B");
+    expect(html).toContain('aria-label="shot.png"');
+    expect(html).toContain('title="报告.pdf"');
+  });
+
   it("renders composer media previews as compact thumbnail and file chips", () => {
     const html = renderToString(
       <ComposerMediaPreviewStrip
@@ -1545,6 +1593,114 @@ describe("HomePage", () => {
     expect(clearComposer).toHaveBeenCalledTimes(1);
     expect(onNewChatMessageSent).toHaveBeenCalledWith("chat-new");
     expect(track).toHaveBeenCalledWith({ name: "agent_send_message", params: { page_path: "/main" }, consentTier: "basic" });
+  });
+
+  describe("editing a sent message restores its attachments", () => {
+    it("maps message media with a gateway path into uploaded pending attachments", () => {
+      const restored = messageMediaToPendingAttachments([
+        { kind: "image", url: "http://agent.local/api/media/sig/shot", name: "shot.png", path: "/media/websocket/webui/shot.png" },
+        { kind: "file", url: "http://agent.local/api/media/sig/report", name: "报告.pdf", path: "/media/websocket/webui/报告.pdf" },
+        { kind: "image", url: "http://agent.local/api/media/sig/no-path" },
+        { kind: "video", url: "http://agent.local/api/media/sig/clip", path: "/media/websocket/webui/clip.mp4" },
+        { kind: "file", path: "/media/websocket/webui/unnamed.txt" }
+      ], "edit:turn-1");
+
+      expect(restored).toHaveLength(3);
+      expect(restored.every(isPendingUploadedAttachment)).toBe(true);
+      expect(restored.map((item) => [item.kind, item.fileName, item.serverPath, item.previewUrl ?? null])).toEqual([
+        ["image", "shot.png", "/media/websocket/webui/shot.png", "http://agent.local/api/media/sig/shot"],
+        ["file", "报告.pdf", "/media/websocket/webui/报告.pdf", null],
+        ["file", "unnamed.txt", "/media/websocket/webui/unnamed.txt", null]
+      ]);
+      expect(restored.every((item) => item.status === "ready" && item.sourceKey === "edit:turn-1")).toBe(true);
+      expect(new Set(restored.map((item) => item.id)).size).toBe(3);
+    });
+
+    it("resends restored attachments by path and uploads only the new ones", async () => {
+      const dispatch = vi.fn();
+      const sendMessage = vi.fn(async () => ({ status: "accepted" as const }));
+      const encodedBlob = new Blob(["png"], { type: "image/png" });
+      const uploadAgentMedia = vi.fn(async () => [
+        { path: "/media/websocket/webui/new.png", url: "http://agent.local/api/media/sig/new", name: "new.png", kind: "image" as const, mime: "image/png" as const, bytes: 3 }
+      ]);
+      const restored: PendingUploadedAttachment = {
+        id: "restored-1",
+        sourceKey: "edit:turn-1",
+        fileName: "shot.png",
+        kind: "image",
+        status: "ready",
+        originalBytes: 0,
+        uploaded: true,
+        serverPath: "/media/websocket/webui/shot.png",
+        previewUrl: "http://agent.local/api/media/sig/shot"
+      };
+
+      await expect(submitAgentComposerMessage({
+        chatId: "chat-1",
+        connection: { getReadyGeneration: () => 1, newChat: vi.fn(), submitMessage: sendMessage },
+        content: "换个问法",
+        pendingAttachments: [restored, readyImage({ fileName: "new.png", encodedBlob, encodedBytes: 3 })],
+        uploadAgentMedia,
+        dispatch,
+        track: vi.fn(),
+        clearComposer: vi.fn(),
+        modelPreset: "desktop-openai-gpt-5"
+      })).resolves.toBe(true);
+
+      // Only the fresh image goes through upload; the restored one is never re-encoded.
+      expect(uploadAgentMedia).toHaveBeenCalledTimes(1);
+      expect(uploadAgentMedia).toHaveBeenCalledWith([
+        { blob: encodedBlob, name: "new.png", kind: "image", mime: "image/png" }
+      ]);
+      // Wire order: freshly uploaded first, then the reused server path.
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: "chat-1",
+        media: [
+          { path: "/media/websocket/webui/new.png", url: "http://agent.local/api/media/sig/new", name: "new.png", kind: "image", mime: "image/png", bytes: 3 },
+          { path: "/media/websocket/webui/shot.png" }
+        ]
+      }), 1);
+      // Optimistic bubble shows both, with the restored preview URL preserved.
+      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+        type: "agent/userMessageQueued",
+        media: [
+          { url: "http://agent.local/api/media/sig/new", name: "new.png", kind: "image", path: "/media/websocket/webui/new.png" },
+          { kind: "image", name: "shot.png", path: "/media/websocket/webui/shot.png", url: "http://agent.local/api/media/sig/shot" }
+        ]
+      }));
+    });
+
+    it("sends restored attachments without touching the upload endpoint at all", async () => {
+      const sendMessage = vi.fn(async () => ({ status: "accepted" as const }));
+      const uploadAgentMedia = vi.fn(async () => []);
+      const restored: PendingUploadedAttachment = {
+        id: "restored-file",
+        sourceKey: "edit:turn-2",
+        fileName: "报告.pdf",
+        kind: "file",
+        status: "ready",
+        originalBytes: 0,
+        uploaded: true,
+        serverPath: "/media/websocket/webui/报告.pdf"
+      };
+
+      await expect(submitAgentComposerMessage({
+        chatId: "chat-1",
+        connection: { getReadyGeneration: () => 1, newChat: vi.fn(), submitMessage: sendMessage },
+        content: "只改文字",
+        pendingAttachments: [restored],
+        uploadAgentMedia,
+        dispatch: vi.fn(),
+        track: vi.fn(),
+        clearComposer: vi.fn(),
+        modelPreset: "desktop-openai-gpt-5"
+      })).resolves.toBe(true);
+
+      expect(uploadAgentMedia).not.toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        media: [{ path: "/media/websocket/webui/报告.pdf" }]
+      }), 1);
+    });
   });
 
   it("keeps a new project target on the optimistic task action", async () => {
