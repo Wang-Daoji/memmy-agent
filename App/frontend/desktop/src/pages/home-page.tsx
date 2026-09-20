@@ -40,16 +40,18 @@ import { ImChannelTitleIcon, imChannelTitleDisplay } from "../integrations/integ
 import { useTaskBus, type TaskBusAgentMessage } from "../lib/task-bus.js";
 import type { AppAction } from "../state/app-actions.js";
 import { agentActions, appActions, createAgentOperationError } from "../state/app-actions.js";
-import { type AgentChatMessage, type AgentState } from "../state/agent-chat-slice.js";
+import { type AgentChatMediaAttachment, type AgentChatMessage, type AgentState } from "../state/agent-chat-slice.js";
 import { useAppState } from "../state/app-state.js";
 import { isComposingKeyboardEvent } from "../utils/keyboard.js";
 import {
   agentChatScopeKey,
+  isPendingUploadedAttachment,
   updateComposerDraftForScope,
   type PendingAttachment,
   type PendingAttachmentBase,
   type PendingFileAttachment,
-  type PendingImage
+  type PendingImage,
+  type PendingUploadedAttachment
 } from "../state/agent-composer-state.js";
 import { createModelWorkspace, defaultModelSelectionInput, resolveModelSelection } from "../state/model-workspace.js";
 import {
@@ -97,7 +99,8 @@ import { ArrowDown, Check, ChevronDown, Folder, Pencil, Plus as LucidePlus, Rota
 export { agentChatScopeKey, updateComposerDraftForScope };
 export { hydrateAgentThreadInBackground };
 export { isComposingKeyboardEvent } from "../utils/keyboard.js";
-export type { PendingAttachment, PendingAttachmentBase, PendingFileAttachment, PendingImage };
+export { isPendingUploadedAttachment };
+export type { PendingAttachment, PendingAttachmentBase, PendingFileAttachment, PendingImage, PendingUploadedAttachment };
 
 const NEW_TASK_MODEL_SCOPE_KEY = "draft-new-task";
 
@@ -389,6 +392,11 @@ export function shouldAcceptAgentStatusResult(input: {
   return input.pendingStatusChatId === input.resultChatId && input.subscribedChatId === input.resultChatId;
 }
 
+/** Restored attachments carry no byte count; omit the size segment rather than showing "0 B". */
+function attachmentSubline(extensionLabel: string, bytes: number): string {
+  return bytes > 0 ? `${extensionLabel} · ${formatBytes(bytes)}` : extensionLabel;
+}
+
 export function ComposerMediaPreviewStrip(props: {
   items: PendingAttachment[];
   onRemove: (id: string) => void;
@@ -397,7 +405,10 @@ export function ComposerMediaPreviewStrip(props: {
   t?: HomeTranslate;
 }) {
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
-  const previewImages = props.items.filter((item): item is PendingImage => item.kind === "image");
+  const previewImages = props.items.filter(
+    (item): item is PendingImage | (PendingUploadedAttachment & { previewUrl: string }) =>
+      item.kind === "image" && Boolean(item.previewUrl)
+  );
   const previewImageIndex = previewImageId == null
     ? -1
     : previewImages.findIndex((item) => item.id === previewImageId);
@@ -444,17 +455,18 @@ export function ComposerMediaPreviewStrip(props: {
 }
 
 export function ComposerImageAttachmentChip(props: {
-  item: PendingImage;
+  item: PendingImage | PendingUploadedAttachment;
   onPreview: (id: string) => void;
   onRemove: (id: string) => void;
   removeLabel: string;
   t: HomeTranslate;
 }) {
   const { item, t } = props;
-  const extensionLabel = splitAgentAttachmentName(item.fileName, item.encodedMime ? `.${item.encodedMime.slice("image/".length)}` : undefined).extensionLabel;
+  const encodedMime = "encodedMime" in item ? item.encodedMime : undefined;
+  const extensionLabel = splitAgentAttachmentName(item.fileName, encodedMime ? `.${encodedMime.slice("image/".length)}` : undefined).extensionLabel;
   const subline = item.status === "error"
     ? t(item.errorKey ?? "home.media.error.sendReadFailed")
-    : `${extensionLabel} · ${formatBytes(item.originalBytes)}`;
+    : attachmentSubline(extensionLabel, item.originalBytes);
 
   return (
     <AgentAttachmentCard
@@ -474,18 +486,22 @@ export function ComposerImageAttachmentChip(props: {
 }
 
 export function ComposerFileAttachmentChip(props: {
-  item: PendingFileAttachment;
+  item: PendingFileAttachment | PendingUploadedAttachment;
   onRemove: (id: string) => void;
   removeLabel: string;
 }) {
-  const { item } = props;
+  const item = isPendingUploadedAttachment(props.item)
+    // Restored attachments carry no local upload state; present them through the
+    // same shape so the card reads one consistent contract.
+    ? { ...props.item, localPath: undefined, uploadMime: undefined, uploadBytes: undefined, extension: undefined }
+    : props.item;
   const extensionLabel = splitAgentAttachmentName(item.fileName, item.extension).extensionLabel;
   return (
     <AgentAttachmentCard
       kind="file"
       name={item.fileName}
       mime={item.uploadMime}
-      subline={`${extensionLabel} · ${formatBytes(item.uploadBytes ?? item.originalBytes)}`}
+      subline={attachmentSubline(extensionLabel, item.uploadBytes ?? item.originalBytes)}
       removable
       removeLabel={props.removeLabel}
       title={item.fileName}
@@ -738,7 +754,13 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
     }
   }
 
-  const uploadInputs = input.pendingAttachments.map((item) => ({
+  // Attachments restored from an edited message already live in the gateway media dir;
+  // only genuinely local ones go through upload.
+  const localAttachments = input.pendingAttachments.filter(
+    (item): item is PendingLocalAttachment => !isPendingUploadedAttachment(item)
+  );
+  const reusedAttachments = input.pendingAttachments.filter(isPendingUploadedAttachment);
+  const uploadInputs = localAttachments.map((item) => ({
     blob: uploadBlobForPendingAttachment(item),
     name: safeAgentAttachmentFilename(item.fileName, uploadClassificationForPendingAttachment(item)),
     kind: item.kind,
@@ -752,13 +774,23 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
       input.dispatch(agentActions.transientSendFailed(chatId));
     }
     const uploadErrorKey = error instanceof MemmyAgentRequestError && error.status === 413
-      ? input.pendingAttachments.some((item) => item.kind === "file")
+      ? localAttachments.some((item) => item.kind === "file")
         ? "home.media.error.sendFileSize"
         : "home.media.error.sendSize"
       : "home.media.error.sendFailed";
     input.setComposerMediaError?.(uploadErrorKey);
     return false;
   }
+  const reusedMedia: AgentChatMediaAttachment[] = reusedAttachments.map((item) => ({
+    kind: item.kind,
+    name: item.fileName,
+    path: item.serverPath,
+    ...(item.previewUrl ? { url: item.previewUrl } : {})
+  }));
+  const mediaPaths = [
+    ...uploadedAttachments.map((item) => item.path),
+    ...reusedAttachments.map((item) => item.serverPath)
+  ];
 
   const payload = {
     type: "message",
@@ -770,7 +802,7 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
     ...(capturedTarget ? { target: capturedTarget } : {}),
     ...(input.language ? { language: input.language } : {}),
     ...(confirmedModelPreset !== undefined ? { model_preset: confirmedModelPreset } : {}),
-    ...(uploadedAttachments.length ? { media_paths: uploadedAttachments.map((item) => item.path) } : {})
+    ...(mediaPaths.length ? { media_paths: mediaPaths } : {})
   };
   if (encodedPayloadBytes(payload) > AGENT_WS_SAFE_FRAME_BYTES) {
     if (createdNewChat && chatId) {
@@ -793,7 +825,7 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
       ...(capturedTarget ? { target: capturedTarget } : {}),
       ...(input.language ? { language: input.language } : {}),
       ...(confirmedModelPreset !== undefined ? { modelPreset: confirmedModelPreset } : {}),
-      media: uploadedAttachments
+      media: [...uploadedAttachments, ...reusedAttachments.map((item) => ({ path: item.serverPath }))]
     }, expectedGeneration);
   } catch (error) {
     if (createdNewChat) {
@@ -824,7 +856,10 @@ export async function submitAgentComposerMessage(input: SubmitAgentComposerMessa
     input.dispatch(agentActions.userMessageQueued({
       chatId,
       content: displayText,
-      media: uploadedAttachments.map((item) => ({ url: item.url, name: item.name, kind: item.kind, path: item.path })),
+      media: [
+        ...uploadedAttachments.map((item) => ({ url: item.url, name: item.name, kind: item.kind, path: item.path })),
+        ...reusedMedia
+      ],
       focus,
       clientRequestId,
       ...(capturedTarget ? { target: capturedTarget } : {})
@@ -1895,12 +1930,20 @@ export function HomePage() {
     }
     setEditingTurnId(message.turnId);
     dispatch(agentActions.composerDraftUpdated(chatScopeKey, message.content));
+    // Entering edit mode replaces whatever was in the attachment strip with the
+    // original message's attachments, so the composer mirrors the bubble being edited.
+    const restored = messageMediaToPendingAttachments(message.media ?? [], `edit:${message.turnId}`);
+    setPendingAttachmentsForScope(chatScopeKey, () => restored);
+    setComposerMediaErrorForScope(chatScopeKey, null);
     inputRef.current?.focus();
+    // setPendingAttachmentsForScope / setComposerMediaErrorForScope are hoisted component
+    // functions that read refs, not reactive values.
   }, [chatScopeKey, dispatch, state.agent.currentChatId]);
 
   const cancelEditLastUserMessage = useCallback(() => {
     setEditingTurnId(null);
     dispatch(agentActions.composerDraftUpdated(chatScopeKey, ""));
+    clearPendingAttachments();
   }, [chatScopeKey, dispatch]);
 
   async function removeQueuedMessage(clientRequestId: string) {
@@ -3721,7 +3764,13 @@ function readableError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }
 
+/** Attachments that still need to be uploaded, as opposed to ones restored from a sent message. */
+type PendingLocalAttachment = Exclude<PendingAttachment, PendingUploadedAttachment>;
+
 function isPendingAttachmentReadyForUpload(item: PendingAttachment): boolean {
+  if (isPendingUploadedAttachment(item)) {
+    return true;
+  }
   if (item.status !== "ready") {
     return false;
   }
@@ -3730,15 +3779,15 @@ function isPendingAttachmentReadyForUpload(item: PendingAttachment): boolean {
     : Boolean(item.uploadBlob && item.uploadMime);
 }
 
-function uploadBlobForPendingAttachment(item: PendingAttachment): Blob {
+function uploadBlobForPendingAttachment(item: PendingLocalAttachment): Blob {
   return item.kind === "image" ? item.encodedBlob! : item.uploadBlob!;
 }
 
-function uploadMimeForPendingAttachment(item: PendingAttachment): UploadedAgentMedia["mime"] {
+function uploadMimeForPendingAttachment(item: PendingLocalAttachment): UploadedAgentMedia["mime"] {
   return item.kind === "image" ? item.encodedMime! : item.uploadMime!;
 }
 
-function uploadClassificationForPendingAttachment(item: PendingAttachment): AgentAttachmentClassification {
+function uploadClassificationForPendingAttachment(item: PendingLocalAttachment): AgentAttachmentClassification {
   if (item.kind === "image") {
     return {
       kind: "image",
@@ -3895,6 +3944,37 @@ export async function validateAgentMediaFiles(files: File[], t?: HomeTranslate, 
   }
 
   return { files: resultFiles, duplicateCount };
+}
+
+/**
+ * Rebuild composer attachments from a sent message so it can be edited and resent.
+ * Only entries with a gateway media path can be resent; anything else is skipped.
+ */
+export function messageMediaToPendingAttachments(
+  media: readonly AgentChatMediaAttachment[],
+  sourceKey: string
+): PendingUploadedAttachment[] {
+  const out: PendingUploadedAttachment[] = [];
+  for (const item of media) {
+    if (!item.path) continue;
+    if (item.kind !== "image" && item.kind !== "file") continue;
+    out.push({
+      id: randomPendingAttachmentId(item.kind),
+      sourceKey,
+      fileName: item.name ?? lastPathSegment(item.path),
+      kind: item.kind,
+      status: "ready",
+      originalBytes: 0,
+      uploaded: true,
+      serverPath: item.path,
+      ...(item.kind === "image" && item.url ? { previewUrl: item.url } : {})
+    });
+  }
+  return out;
+}
+
+function lastPathSegment(value: string): string {
+  return value.split(/[\\/]/).pop() || "attachment";
 }
 
 export function fileToPendingAttachment(file: File, sourceKey: string, classificationInput?: AgentAttachmentClassification): PendingAttachment {
