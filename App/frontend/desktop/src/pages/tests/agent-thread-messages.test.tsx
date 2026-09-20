@@ -87,6 +87,48 @@ describe("AgentThreadMessages", () => {
     expect(html.indexOf("查看本轮记忆依据")).toBeLessThan(html.indexOf("已完成。"));
   });
 
+  describe("edit button on the last user bubble", () => {
+    const twoTurns = [
+      { id: "u1", role: "user" as const, turnId: "turn-1", content: "第一问" },
+      { id: "a1", role: "assistant" as const, turnId: "turn-1", content: "第一答" },
+      { id: "u2", role: "user" as const, turnId: "turn-2", content: "第二问" },
+      { id: "a2", role: "assistant" as const, turnId: "turn-2", content: "第二答" }
+    ];
+
+    function render(props: { messages: typeof twoTurns; isSending?: boolean; onEditMessage?: () => void }) {
+      return renderToString(
+        <I18nProvider language="zh-CN">
+          <AgentThreadMessages chatScopeKey="chat-edit" {...props} />
+        </I18nProvider>
+      );
+    }
+
+    it("renders exactly one edit button, on the last user message, when idle", () => {
+      const html = render({ messages: twoTurns, isSending: false, onEditMessage: vi.fn() });
+      const editButtons = html.match(/aria-label="修改提问"/g) ?? [];
+      expect(editButtons).toHaveLength(1);
+      // The edit control sits inside the last user bubble, i.e. after 第二问 and before 第二答.
+      expect(html.indexOf('aria-label="修改提问"')).toBeGreaterThan(html.indexOf("第二问"));
+      expect(html.indexOf('aria-label="修改提问"')).toBeLessThan(html.indexOf("第二答"));
+    });
+
+    it("hides the edit button while a turn is running", () => {
+      const html = render({ messages: twoTurns, isSending: true, onEditMessage: vi.fn() });
+      expect(html).not.toContain('aria-label="修改提问"');
+    });
+
+    it("hides the edit button when the last user message has no turn id", () => {
+      const messages = [...twoTurns.slice(0, 3), { id: "u3", role: "user" as const, content: "无 turn id" }];
+      const html = render({ messages, isSending: false, onEditMessage: vi.fn() });
+      expect(html).not.toContain('aria-label="修改提问"');
+    });
+
+    it("hides the edit button when no handler is wired", () => {
+      const html = render({ messages: twoTurns, isSending: false });
+      expect(html).not.toContain('aria-label="修改提问"');
+    });
+  });
+
   it("keeps memo boundaries around chat history rendering", () => {
     const threadSource = readFileSync(agentThreadMessagesSourceUrl, "utf8");
     const contentSource = readFileSync(agentMessageContentSourceUrl, "utf8");

@@ -2151,6 +2151,9 @@ describe("memmy-agent client", () => {
     const connection = await connectReady(client, sockets);
     sockets[0]?.emitClose();
     connection.stop("chat-control");
+    connection.revert("chat-control", "turn-9");
+    connection.revert("", "turn-9");
+    connection.revert("chat-control", "");
     connection.status("chat-control");
     expect(() => connection.sendMessage({ chatId: "chat-message", content: "do not queue" }, 1))
       .toThrow("Agent gateway is not ready");
@@ -2163,6 +2166,7 @@ describe("memmy-agent client", () => {
       { type: "attach", chat_id: "ready-chat" },
       { type: "attach", chat_id: "chat-control" },
       { type: "stop", chat_id: "chat-control" },
+      { type: "revert", chat_id: "chat-control", before_turn_id: "turn-9" },
       { type: "status", chat_id: "chat-control" }
     ]);
   });

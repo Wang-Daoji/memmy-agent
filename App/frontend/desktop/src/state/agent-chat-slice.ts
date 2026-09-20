@@ -228,6 +228,7 @@ export interface AgentState {
   optimisticSendingByChatId: Record<string, boolean>;
   deliveryUncertainByChatId: Record<string, boolean>;
   stopInFlightByChatId: Record<string, boolean>;
+  revertInFlightByChatId: Record<string, string>;
   suppressAssistantStreamUntilTurnEndByChatId: Record<string, boolean>;
   optimisticTasksByChatId: Record<string, OptimisticAgentTask>;
   completedUnseenByChatId: Record<string, number>;
@@ -315,6 +316,8 @@ export type AgentAction =
   | { type: "agent/composerScopeCleared"; scopeKey: string }
   | { type: "agent/stopRequested"; chatId: string }
   | { type: "agent/stopUnconfirmed"; chatId: string }
+  | { type: "agent/revertRequested"; chatId: string; turnId: string }
+  | { type: "agent/revertUnconfirmed"; chatId: string }
   | { type: "agent/goalMutationStarted"; chatId: string; requestId: string; goalId: string; action: AgentGoalControlAction }
   | { type: "agent/goalMutationSettled"; chatId: string; requestId: string }
   | { type: "agent/restartRequested"; startedAt: number }
@@ -394,6 +397,7 @@ export const initialAgentState: AgentState = {
   optimisticSendingByChatId: {},
   deliveryUncertainByChatId: {},
   stopInFlightByChatId: {},
+  revertInFlightByChatId: {},
   suppressAssistantStreamUntilTurnEndByChatId: {},
   optimisticTasksByChatId: {},
   completedUnseenByChatId: {},
@@ -644,6 +648,16 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       return stopCurrentTurn(state, action.chatId);
     case "agent/stopUnconfirmed":
       return releaseUnconfirmedStop(state, action.chatId);
+    case "agent/revertRequested":
+      return {
+        ...state,
+        revertInFlightByChatId: { ...state.revertInFlightByChatId, [action.chatId]: action.turnId }
+      };
+    case "agent/revertUnconfirmed":
+      return {
+        ...state,
+        revertInFlightByChatId: clearChatMapValue(state.revertInFlightByChatId, action.chatId)
+      };
     case "agent/goalMutationStarted":
       return {
         ...state,
@@ -1278,6 +1292,20 @@ function replaceChatMessages(state: AgentState, chatId: string, messages: AgentC
   };
 }
 
+// Drop the reverted turn and everything after it. The gateway also reports a session-level
+// from_message_index, but this list is filtered and folded so only turnId lines up with it.
+function applyReverted(state: AgentState, chatId: string, fromTurnId: string): AgentState {
+  const messages = state.messagesByChatId[chatId];
+  const cutIndex = messages?.findIndex((message) => message.turnId === fromTurnId) ?? -1;
+  const truncated = cutIndex >= 0 && messages
+    ? replaceChatMessages(state, chatId, messages.slice(0, cutIndex))
+    : state;
+  return {
+    ...truncated,
+    revertInFlightByChatId: clearChatMapValue(truncated.revertInFlightByChatId, chatId)
+  };
+}
+
 function applyRecoveryRunningSnapshot(
   state: AgentState,
   chatId: string,
@@ -1681,6 +1709,7 @@ function completeSessionsLoad(state: AgentState, sessions: MemmyAgentSessionSumm
     runStatusVersionByChatId: pruneNumberMap(state.runStatusVersionByChatId, knownChatIds),
     currentSessionsRequestRunStatusVersionByChatId: null,
     stopInFlightByChatId: pruneBooleanMap(state.stopInFlightByChatId, knownChatIds),
+    revertInFlightByChatId: pruneChatMap(state.revertInFlightByChatId, knownChatIds),
     suppressAssistantStreamUntilTurnEndByChatId: pruneBooleanMap(state.suppressAssistantStreamUntilTurnEndByChatId, knownChatIds),
     currentSessionsRequestId: null,
     isLoadingSessions: false,
@@ -2744,6 +2773,9 @@ function reduceWsEvent(state: AgentState, event: MemmyAgentWsEvent): AgentState 
       if (event.detail === "stop_failed") {
         return handleStopFailed(state, event);
       }
+      if (event.detail === "revert_failed") {
+        return handleRevertFailed(state, event);
+      }
       const errored = setOperationError(state, "chat", operationErrorFromEvent(event, "gateway-command"));
       return event.client_request_id
         ? clearPendingModelCommit(errored, event.client_request_id)
@@ -2787,7 +2819,8 @@ function reduceWsEvent(state: AgentState, event: MemmyAgentWsEvent): AgentState 
         ...(clearRecoveryTaskRequest ? { currentTaskStateRequest: null, isLoadingSessions: false } : {}),
         ...(!hasCurrentNormalHistoryRequest ? { isLoadingHistory: false } : {}),
         deliveryUncertainByChatId,
-        stopInFlightByChatId: {}
+        stopInFlightByChatId: {},
+        revertInFlightByChatId: {}
       });
     }
     case "run_status_snapshot":
@@ -2807,6 +2840,10 @@ function reduceWsEvent(state: AgentState, event: MemmyAgentWsEvent): AgentState 
         : state;
     case "stop_result":
       return event.chat_id ? markChatIdle(state, event.chat_id, { source: "stop_result", turnId: eventTurnId(event) }) : state;
+    case "reverted":
+      return event.chat_id && event.from_turn_id
+        ? applyReverted(state, event.chat_id, event.from_turn_id)
+        : state;
     case "session_updated":
       return event.chat_id ? markSessionUpdated(state, event.chat_id, event.scope) : state;
     case "message_accepted":
@@ -3090,6 +3127,14 @@ function handleStopFailed(state: AgentState, event: MemmyAgentWsEvent): AgentSta
   const chatId = event.chat_id;
   const nextState = chatId
     ? { ...state, stopInFlightByChatId: clearChatMapValue(state.stopInFlightByChatId, chatId) }
+    : state;
+  return setOperationError(nextState, "chat", operationErrorFromEvent(event, "gateway-command"));
+}
+
+function handleRevertFailed(state: AgentState, event: MemmyAgentWsEvent): AgentState {
+  const chatId = event.chat_id;
+  const nextState = chatId
+    ? { ...state, revertInFlightByChatId: clearChatMapValue(state.revertInFlightByChatId, chatId) }
     : state;
   return setOperationError(nextState, "chat", operationErrorFromEvent(event, "gateway-command"));
 }

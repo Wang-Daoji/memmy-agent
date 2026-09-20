@@ -115,7 +115,7 @@ import {
 } from "./workspace-artifact-panel.js";
 import { Mic, Pause, Plus, Send } from "./memory/memory-prototype-icons.js";
 import { resolveWorkspaceEnvironmentScope, useWorkspaceEnvironment } from "./use-workspace-environment.js";
-import { ArrowDown, BookOpenText, CalendarCheck2, Check, ChevronDown, Folder, History, PanelRight, Plus as LucidePlus, RotateCw, SlidersHorizontal, SquareSlash, Target, X } from "lucide-react";
+import { ArrowDown, BookOpenText, CalendarCheck2, Check, ChevronDown, Folder, History, PanelRight, Pencil, Plus as LucidePlus, RotateCw, SlidersHorizontal, SquareSlash, Target, X } from "lucide-react";
 
 export { agentChatScopeKey, updateComposerDraftForScope };
 export { hydrateAgentThreadInBackground };
@@ -158,6 +158,7 @@ const FIRST_ENCOUNTER_MEMORY_VERIFY_TIMEOUT_MS = 60_000;
 const FIRST_ENCOUNTER_MEMORY_VERIFY_INTERVAL_MS = 2_000;
 /** Definition for stop confirmation grace ms. */
 export const STOP_CONFIRMATION_GRACE_MS = 8000;
+export const REVERT_CONFIRMATION_GRACE_MS = 8000;
 
 export interface ComposerCommandDraft {
   command: typeof COMPOSER_GOAL_COMMAND | null;
@@ -363,6 +364,30 @@ export function requestAgentStop(input: RequestAgentStopInput): boolean {
     input.stopRequestLocks.delete(chatId);
     throw error;
   }
+}
+
+export interface RequestAgentRevertInput {
+  chatId: string | null;
+  turnId: string | null;
+  connection: Pick<MemmyAgentWebSocketConnection, "revert"> | null;
+  isSending: boolean;
+  revertInFlightByChatId: Record<string, string>;
+  dispatch: (action: AppAction) => void;
+}
+
+/**
+ * Ask the gateway to drop the last user turn before resending an edited version.
+ * Returns false when the request cannot be issued right now; the caller must
+ * not fall through to a normal send in that case.
+ */
+export function requestAgentRevert(input: RequestAgentRevertInput): boolean {
+  const { chatId, turnId, connection } = input;
+  if (!chatId || !turnId || !connection || input.isSending || input.revertInFlightByChatId[chatId]) {
+    return false;
+  }
+  input.dispatch(agentActions.revertRequested(chatId, turnId));
+  connection.revert(chatId, turnId);
+  return true;
 }
 
 export function isSingleLineComposerInput(element: HTMLTextAreaElement): boolean {
@@ -1079,6 +1104,8 @@ export function HomePage() {
   const pendingAttachmentsByScope = state.agent.composerPendingAttachmentsByScope;
   const contextReferencesByScope = state.agent.composerContextReferencesByScope;
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Turn id of the last user message currently being rewritten; null when not editing.
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
   const composerShellRef = useRef<HTMLDivElement | null>(null);
   const composerAttachMenuRef = useRef<HTMLDetailsElement | null>(null);
   const composerCapabilityMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1788,6 +1815,32 @@ export function HomePage() {
     return () => window.clearTimeout(timeoutId);
   }, [dispatch, state.agent.stopInFlightByChatId]);
 
+  // Editing is scoped to one chat; switching chats abandons the edit.
+  useEffect(() => {
+    setEditingTurnId(null);
+  }, [state.agent.currentChatId]);
+
+  // Revert self-healing, mirroring the stop flow: if `reverted` (or a revert
+  // error) never arrives, release the in-flight marker so the composer is not
+  // stuck, and surface a retryable error. The draft text is left in place.
+  useEffect(() => {
+    const pendingChatIds = Object.keys(state.agent.revertInFlightByChatId);
+    if (!pendingChatIds.length) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      for (const chatId of pendingChatIds) {
+        dispatch(agentActions.revertUnconfirmed(chatId));
+        dispatch(agentActions.operationFailed("chat", createAgentOperationError({
+          source: "send",
+          message: "agent.message.revertFailed",
+          chatId
+        })));
+      }
+    }, REVERT_CONFIRMATION_GRACE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [dispatch, state.agent.revertInFlightByChatId]);
+
   // NOTE: deliberately NO auto-focus on running->idle transitions. A global
   // state-driven focus() steals the keyboard from whatever the user is doing
   // (any other input field, mid-IME composition) whenever the running flag
@@ -2057,6 +2110,19 @@ export function HomePage() {
     }
     const clientRequestId = crypto.randomUUID();
     const currentChatId = state.agent.currentChatId;
+    if (editingTurnId) {
+      // Drop the old exchange first; the actual send happens in the effect that
+      // fires once `reverted` clears the in-flight marker.
+      requestAgentRevert({
+        chatId: currentChatId,
+        turnId: editingTurnId,
+        connection,
+        isSending: state.agent.isSending,
+        revertInFlightByChatId: state.agent.revertInFlightByChatId,
+        dispatch
+      });
+      return;
+    }
     if (
       currentChatId
       && Boolean(input.trim())
@@ -2148,6 +2214,41 @@ export function HomePage() {
       dispatch(agentActions.messageSendLockUpdated(sendScopeKey, null));
     }
   }
+
+  // Once the gateway confirms the revert (in-flight marker cleared while an
+  // edit is still pending), leave edit mode and send the rewritten text as a
+  // brand-new turn through the normal path.
+  const revertWasInFlightRef = useRef(false);
+  useEffect(() => {
+    const chatId = state.agent.currentChatId;
+    const inFlight = Boolean(chatId && state.agent.revertInFlightByChatId[chatId]);
+    const wasInFlight = revertWasInFlightRef.current;
+    revertWasInFlightRef.current = inFlight;
+    if (!chatId || !editingTurnId || inFlight || !wasInFlight) {
+      return;
+    }
+    const reverted = !state.agent.messages.some((message) => message.turnId === editingTurnId);
+    setEditingTurnId(null);
+    if (reverted) {
+      void sendMessage();
+    }
+    // sendMessage closes over the latest render; listing it would re-run on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingTurnId, state.agent.currentChatId, state.agent.revertInFlightByChatId, state.agent.messages]);
+
+  const editLastUserMessage = useCallback((message: AgentChatMessage) => {
+    if (!message.turnId || !state.agent.currentChatId) {
+      return;
+    }
+    setEditingTurnId(message.turnId);
+    dispatch(agentActions.composerDraftUpdated(chatScopeKey, message.content));
+    inputRef.current?.focus();
+  }, [chatScopeKey, dispatch, state.agent.currentChatId]);
+
+  const cancelEditLastUserMessage = useCallback(() => {
+    setEditingTurnId(null);
+    dispatch(agentActions.composerDraftUpdated(chatScopeKey, ""));
+  }, [chatScopeKey, dispatch]);
 
   async function submitAgentQuestionResponse(
     _card: AgentQuestionCardPayload,
@@ -3514,6 +3615,7 @@ export function HomePage() {
                 artifactClient={sessionArtifactClient}
                 memoryRuntimeClient={clients?.memoryRuntime ?? null}
                 onAnswerQuestion={answerAgentQuestion}
+                onEditMessage={editLastUserMessage}
               />
               <PluginCapabilityHost
                 calls={visiblePluginCalls}
@@ -3609,6 +3711,19 @@ export function HomePage() {
                       pending={Boolean(goalMutationPending)}
                       onControl={(request) => void controlGoal(request)}
                     />
+                  ) : null}
+                  {editingTurnId ? (
+                    <div className="agent-edit-hint-bar" role="status">
+                      <Pencil className="agent-edit-hint-bar__icon" aria-hidden="true" />
+                      <span className="agent-edit-hint-bar__text">{t("agent.message.editingHint")}</span>
+                      <button
+                        type="button"
+                        className="agent-edit-hint-bar__cancel"
+                        onClick={cancelEditLastUserMessage}
+                      >
+                        {t("agent.message.editingCancel")}
+                      </button>
+                    </div>
                   ) : null}
                   <div
                     ref={composerShellRef}

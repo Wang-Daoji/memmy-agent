@@ -182,6 +182,7 @@ type GuiTranscriptMirrorLike = {
     sessionKey: string,
   ) => WebuiSessionBinding | null;
   sessionUpdated: (sessionKey: string) => void;
+  turnReverted: (sessionKey: string, fromTurnId: string, fromMessageIndex: number) => void;
   turn: (
     sessionKey: string,
     turnId: string,
@@ -1657,13 +1658,8 @@ export class AgentLoop {
       sessionKey,
       beforeTurnId,
     );
-    // Clear in-memory queued messages for this turn (private loop state, not accessible from session-revert.ts).
-    const queue = this.pendingQueues.get(sessionKey);
-    if (queue) {
-      // Cancel any queued messages that belong to the reverted turn.
-      // The queue will be drained naturally; we cannot selectively remove items,
-      // but stop() will have been called before revert, so the queue should be empty.
-    }
+    // Nothing to purge from pendingQueues here: the gateway only accepts a revert while the
+    // chat is idle, which means no turn slot is open and this session has no queued steers.
     return result;
   }
 

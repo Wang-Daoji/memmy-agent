@@ -457,6 +457,12 @@ export const agentActions = {
   stopUnconfirmed(chatId: string): AppAction {
     return { type: "agent/stopUnconfirmed", chatId };
   },
+  revertRequested(chatId: string, turnId: string): AppAction {
+    return { type: "agent/revertRequested", chatId, turnId };
+  },
+  revertUnconfirmed(chatId: string): AppAction {
+    return { type: "agent/revertUnconfirmed", chatId };
+  },
 
   goalMutationStarted(input: {
     chatId: string;

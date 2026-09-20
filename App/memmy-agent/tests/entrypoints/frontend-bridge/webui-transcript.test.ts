@@ -112,6 +112,80 @@ describe("webui transcript replay", () => {
     expect(closedMessages[0].isStreaming).toBeUndefined();
   });
 
+  it("drops the reverted turn and every later row while keeping earlier turns", () => {
+    const messages = replayTranscriptToUiMessages([
+      { event: "user", turn_id: "turn-1", text: "first question" },
+      { event: "message", turn_id: "turn-1", text: "first answer" },
+      { event: "turn_end", turn_id: "turn-1" },
+      { event: "user", turn_id: "turn-2", text: "second question" },
+      { event: "message", turn_id: "turn-2", text: "second answer" },
+      { event: "turn_end", turn_id: "turn-2" },
+      { event: "turn_reverted", from_turn_id: "turn-2", from_message_index: 2 },
+    ]);
+
+    expect(messages.map((message) => [message.role, message.content])).toEqual([
+      ["user", "first question"],
+      ["assistant", "first answer"],
+    ]);
+  });
+
+  it("replays the rewritten turn appended after a turn_reverted marker", () => {
+    const messages = replayTranscriptToUiMessages([
+      { event: "user", turn_id: "turn-1", text: "first question" },
+      { event: "message", turn_id: "turn-1", text: "first answer" },
+      { event: "turn_end", turn_id: "turn-1" },
+      { event: "user", turn_id: "turn-2", text: "wrong question" },
+      { event: "message", turn_id: "turn-2", text: "wrong answer" },
+      { event: "turn_end", turn_id: "turn-2" },
+      { event: "turn_reverted", from_turn_id: "turn-2", from_message_index: 2 },
+      { event: "user", turn_id: "turn-3", text: "corrected question" },
+      { event: "delta", turn_id: "turn-3", text: "corrected " },
+      { event: "delta", turn_id: "turn-3", text: "answer" },
+      { event: "turn_end", turn_id: "turn-3" },
+    ]);
+
+    expect(messages.map((message) => [message.role, message.content])).toEqual([
+      ["user", "first question"],
+      ["assistant", "first answer"],
+      ["user", "corrected question"],
+      ["assistant", "corrected answer"],
+    ]);
+    expect(messages[3].isStreaming).toBeUndefined();
+  });
+
+  it("ignores late deltas for a reverted turn and applies the last of several reverts", () => {
+    const messages = replayTranscriptToUiMessages([
+      { event: "user", turn_id: "turn-1", text: "q1" },
+      { event: "message", turn_id: "turn-1", text: "a1" },
+      { event: "turn_end", turn_id: "turn-1" },
+      { event: "turn_reverted", from_turn_id: "turn-1", from_message_index: 0 },
+      { event: "delta", turn_id: "turn-1", text: "late delta" },
+      { event: "user", turn_id: "turn-2", text: "q2" },
+      { event: "message", turn_id: "turn-2", text: "a2" },
+      { event: "turn_end", turn_id: "turn-2" },
+      { event: "turn_reverted", from_turn_id: "turn-2", from_message_index: 0 },
+      { event: "user", turn_id: "turn-3", text: "q3" },
+      { event: "message", turn_id: "turn-3", text: "a3" },
+      { event: "turn_end", turn_id: "turn-3" },
+    ]);
+
+    expect(messages.map((message) => [message.role, message.content])).toEqual([
+      ["user", "q3"],
+      ["assistant", "a3"],
+    ]);
+  });
+
+  it("falls back to from_message_index when the reverted turn id is absent", () => {
+    const messages = replayTranscriptToUiMessages([
+      { event: "user", text: "legacy question" },
+      { event: "message", text: "legacy answer" },
+      { event: "turn_end" },
+      { event: "turn_reverted", from_message_index: 1 },
+    ]);
+
+    expect(messages.map((message) => message.content)).toEqual(["legacy question"]);
+  });
+
   it("appends and reads JSONL records", () => {
     useDataDir();
     const key = "websocket:t1";

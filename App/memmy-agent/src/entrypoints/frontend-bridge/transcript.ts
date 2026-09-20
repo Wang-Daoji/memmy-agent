@@ -468,6 +468,7 @@ export function replayTranscriptToUiMessages(lines: Dict[], options: ReplayTrans
   };
   const replayStates = new Map<string, ReplayState>();
   const closedReplayTurnIds = new Set<string>();
+  const revertedReplayTurnIds = new Set<string>();
   let activitySegmentCounter = 0;
   const newId = (prefix: string, idx: number): string => `${prefix}-${idx}-${randomUUID().slice(0, 8)}`;
 
@@ -1140,6 +1141,9 @@ export function replayTranscriptToUiMessages(lines: Dict[], options: ReplayTrans
   }
 
   for (const [idx, rec] of lines.entries()) {
+    const recTurnId = recordTurnId(rec);
+    // Anything a reverted turn writes after its marker is stale and must never reach the UI.
+    if (recTurnId && revertedReplayTurnIds.has(recTurnId)) continue;
     activateReplayState(rec);
     const ev = rec.event;
     if (ev === "user") {
@@ -1438,6 +1442,33 @@ export function replayTranscriptToUiMessages(lines: Dict[], options: ReplayTrans
       if (!hasAssistantPayload) continue;
       absorbComplete(extra, rec, idx);
       if (media.length) suppressUntilTurnEnd = true;
+      continue;
+    }
+
+    if (ev === "turn_reverted") {
+      // The marker carries from_turn_id rather than turn_id, so activateReplayState has already
+      // reset activeReplayTurnId; recover the reverted turn from the record itself.
+      const revertedTurnId = stringValue(rec.from_turn_id) ?? stringValue(rec.fromTurnId);
+      // UI rows are keyed by turnId; the session-level from_message_index does not line up with
+      // this array once tool calls are folded, so cut at the first row of the reverted turn.
+      let cutIndex = revertedTurnId ? messages.findIndex((message) => message.turnId === revertedTurnId) : -1;
+      if (cutIndex < 0 && typeof rec.from_message_index === "number") {
+        cutIndex = Math.max(0, Math.min(messages.length, rec.from_message_index));
+      }
+      if (cutIndex >= 0) {
+        messages = messages.slice(0, cutIndex);
+        if (revertedTurnId) {
+          revertedReplayTurnIds.add(revertedTurnId);
+          closedReplayTurnIds.add(revertedTurnId);
+          replayStates.delete(`turn:${revertedTurnId}`);
+        }
+        bufferMessageId = null;
+        closedAnswerMessageId = null;
+        bufferParts = [];
+        suppressUntilTurnEnd = false;
+        activeActivitySegmentId = null;
+        activeFileEditSegmentId = null;
+      }
       continue;
     }
 

@@ -3843,6 +3843,89 @@ describe("agent chat slice", () => {
     expect(state.messages.some((message) => message.content.includes("Stopped"))).toBe(false);
   });
 
+  describe("revert of the last user turn", () => {
+    function hydratedTwoTurnState(): AgentState {
+      let state = agentReducer(initialAgentState, {
+        type: "agent/historyLoading",
+        sessionKey: "websocket:chat-revert",
+        chatId: "chat-revert",
+        requestId: "hydrate-revert"
+      });
+      state = agentReducer(state, {
+        type: "agent/historyLoaded",
+        requestId: "hydrate-revert",
+        thread: {
+          schemaVersion: 3,
+          sessionKey: "websocket:chat-revert",
+          last_turn_closed: true,
+          messages: [
+            { role: "user", content: "first question", turnId: "turn-1" },
+            { role: "assistant", content: "first answer", turnId: "turn-1" },
+            { role: "user", content: "second question", turnId: "turn-2" },
+            { role: "assistant", content: "second answer", turnId: "turn-2" }
+          ]
+        }
+      });
+      return state;
+    }
+
+    it("marks a revert in flight and clears it when the gateway confirms", () => {
+      let state = hydratedTwoTurnState();
+      expect(state.messages).toHaveLength(4);
+
+      state = agentReducer(state, { type: "agent/revertRequested", chatId: "chat-revert", turnId: "turn-2" });
+      expect(state.revertInFlightByChatId["chat-revert"]).toBe("turn-2");
+
+      state = agentReducer(state, {
+        type: "agent/wsEvent",
+        event: { event: "reverted", chat_id: "chat-revert", from_turn_id: "turn-2", from_message_index: 2 }
+      });
+      expect(state.revertInFlightByChatId["chat-revert"]).toBeUndefined();
+      expect(state.messages.map((message) => message.content)).toEqual(["first question", "first answer"]);
+      expect(state.messagesByChatId["chat-revert"]?.map((message) => message.content)).toEqual(["first question", "first answer"]);
+    });
+
+    it("drops the reverted turn and everything after it even for an earlier turn id", () => {
+      let state = hydratedTwoTurnState();
+      state = agentReducer(state, {
+        type: "agent/wsEvent",
+        event: { event: "reverted", chat_id: "chat-revert", from_turn_id: "turn-1", from_message_index: 0 }
+      });
+      expect(state.messages).toEqual([]);
+    });
+
+    it("leaves the list untouched when the turn id is unknown but still clears in-flight", () => {
+      let state = hydratedTwoTurnState();
+      state = agentReducer(state, { type: "agent/revertRequested", chatId: "chat-revert", turnId: "turn-missing" });
+      state = agentReducer(state, {
+        type: "agent/wsEvent",
+        event: { event: "reverted", chat_id: "chat-revert", from_turn_id: "turn-missing", from_message_index: 99 }
+      });
+      expect(state.messages).toHaveLength(4);
+      expect(state.revertInFlightByChatId["chat-revert"]).toBeUndefined();
+    });
+
+    it("clears in-flight and surfaces an error on revert_failed", () => {
+      let state = hydratedTwoTurnState();
+      state = agentReducer(state, { type: "agent/revertRequested", chatId: "chat-revert", turnId: "turn-2" });
+      state = agentReducer(state, {
+        type: "agent/wsEvent",
+        event: { event: "error", chat_id: "chat-revert", detail: "revert_failed", reason: "turn_in_progress" }
+      });
+      expect(state.revertInFlightByChatId["chat-revert"]).toBeUndefined();
+      expect(state.messages).toHaveLength(4);
+      expect(state.operationErrorsBySurface.chat).not.toBeNull();
+    });
+
+    it("releases an unconfirmed revert without touching messages", () => {
+      let state = hydratedTwoTurnState();
+      state = agentReducer(state, { type: "agent/revertRequested", chatId: "chat-revert", turnId: "turn-2" });
+      state = agentReducer(state, { type: "agent/revertUnconfirmed", chatId: "chat-revert" });
+      expect(state.revertInFlightByChatId["chat-revert"]).toBeUndefined();
+      expect(state.messages).toHaveLength(4);
+    });
+  });
+
   it("releases an unconfirmed stop so the composer never stays locked", () => {
     let state = agentReducer(initialAgentState, { type: "agent/sessionsLoaded", sessions });
     state = agentReducer(state, { type: "agent/wsEvent", event: { event: "ready", chat_id: "chat-1" } });

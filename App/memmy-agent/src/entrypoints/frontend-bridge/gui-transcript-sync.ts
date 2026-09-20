@@ -127,6 +127,17 @@ export class GuiTranscriptMirror {
     this.append(sessionKey, { event: "session_updated", chat_id: chatId, scope: "metadata" });
   }
 
+  turnReverted(sessionKey: string, fromTurnId: string, fromMessageIndex: number): void {
+    const chatId = toGuiChatId(sessionKey);
+    this.append(sessionKey, {
+      event: "turn_reverted",
+      chat_id: chatId,
+      from_turn_id: fromTurnId,
+      from_message_index: fromMessageIndex,
+      at: new Date().toISOString(),
+    });
+  }
+
   running(turn: MirrorTurn, startedAt: number): void {
     this.appendTurn(turn, {
       event: "run_status",

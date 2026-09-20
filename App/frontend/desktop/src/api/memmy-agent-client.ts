@@ -680,6 +680,8 @@ export type MemmyAgentWsEvent = {
   status?: string;
   started_at?: number;
   stopped?: number;
+  from_turn_id?: string;
+  from_message_index?: number;
   scope?: string;
   model_name?: string;
   model_preset?: string;
@@ -799,6 +801,7 @@ export interface MemmyAgentWebSocketConnection {
     timeoutMs?: number
   ): Promise<AgentGoalControlResult>;
   stop(chatId: string): void;
+  revert(chatId: string, beforeTurnId: string): void;
   restart(chatId: string): void;
   status(chatId: string): void;
   historyDag(chatId: string): void;
@@ -1847,6 +1850,18 @@ class MemmyAgentWebSocketSession implements MemmyAgentWebSocketConnection {
     this.queueControl({
       type: "stop",
       chat_id: chatId
+    });
+  }
+
+  revert(chatId: string, beforeTurnId: string): void {
+    if (!chatId || !beforeTurnId) {
+      return;
+    }
+    this.knownChats.add(chatId);
+    this.queueControl({
+      type: "revert",
+      chat_id: chatId,
+      before_turn_id: beforeTurnId
     });
   }
 

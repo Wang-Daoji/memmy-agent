@@ -44,6 +44,7 @@ import {
   readFocusedAgentChatId,
   requestNewSessionReset,
   requestAgentRestart,
+  requestAgentRevert,
   requestAgentStop,
   resolveComposerCommandDraft,
   replaceSlashQueryAtSelection,
@@ -1058,6 +1059,36 @@ describe("HomePage", () => {
     expect(dispatch).toHaveBeenCalledWith({ type: "agent/stopRequested", chatId: "chat-1" });
     expect(track).toHaveBeenCalledTimes(1);
     expect(stopRequestLocks.has("chat-1")).toBe(true);
+  });
+
+  it("issues a revert for the edited turn and marks it in flight", () => {
+    const revert = vi.fn();
+    const dispatch = vi.fn();
+    const input = {
+      chatId: "chat-1",
+      turnId: "turn-7",
+      connection: { revert },
+      isSending: false,
+      revertInFlightByChatId: {},
+      dispatch
+    };
+
+    expect(requestAgentRevert(input)).toBe(true);
+    expect(dispatch).toHaveBeenCalledWith({ type: "agent/revertRequested", chatId: "chat-1", turnId: "turn-7" });
+    expect(revert).toHaveBeenCalledWith("chat-1", "turn-7");
+  });
+
+  it("refuses to revert while a turn is running or a revert is already pending", () => {
+    const revert = vi.fn();
+    const dispatch = vi.fn();
+    const base = { chatId: "chat-1", turnId: "turn-7", connection: { revert }, dispatch };
+
+    expect(requestAgentRevert({ ...base, isSending: true, revertInFlightByChatId: {} })).toBe(false);
+    expect(requestAgentRevert({ ...base, isSending: false, revertInFlightByChatId: { "chat-1": "turn-7" } })).toBe(false);
+    expect(requestAgentRevert({ ...base, connection: null, isSending: false, revertInFlightByChatId: {} })).toBe(false);
+    expect(requestAgentRevert({ ...base, chatId: null, isSending: false, revertInFlightByChatId: {} })).toBe(false);
+    expect(revert).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("returns false without locking when there is no active connection", () => {

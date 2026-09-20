@@ -68,6 +68,7 @@ export class ChannelManager {
   removeQueuedWebuiMessage: ((sessionKey: string, clientRequestId: string) => RemoveQueuedWebuiMessageResult | Promise<RemoveQueuedWebuiMessageResult>) | null = null;
   steerQueuedWebuiMessage: ((sessionKey: string, clientRequestId: string, expectedTurnId: string) => SteerQueuedMessageResult | Promise<SteerQueuedMessageResult>) | null = null;
   stopExpectedTurn: ((sessionKey: string, expectedTurnId: string) => Promise<"stopped" | "already_finished" | "not_owned">) | null = null;
+  truncateSession: ((sessionKey: string, beforeTurnId: string) => { fromIndex: number; fromTurnId: string }) | null = null;
 
   constructor(
     configOrBus: any = defaultConfig(),
@@ -89,6 +90,7 @@ export class ChannelManager {
       removeQueuedWebuiMessage?: ((sessionKey: string, clientRequestId: string) => RemoveQueuedWebuiMessageResult | Promise<RemoveQueuedWebuiMessageResult>) | null;
       steerQueuedWebuiMessage?: ((sessionKey: string, clientRequestId: string, expectedTurnId: string) => SteerQueuedMessageResult | Promise<SteerQueuedMessageResult>) | null;
       stopExpectedTurn?: ((sessionKey: string, expectedTurnId: string) => Promise<"stopped" | "already_finished" | "not_owned">) | null;
+      truncateSession?: ((sessionKey: string, beforeTurnId: string) => { fromIndex: number; fromTurnId: string }) | null;
     } = {},
   ) {
     if (configOrBus instanceof MessageBus) {
@@ -113,6 +115,7 @@ export class ChannelManager {
     this.removeQueuedWebuiMessage = options.removeQueuedWebuiMessage ?? null;
     this.steerQueuedWebuiMessage = options.steerQueuedWebuiMessage ?? null;
     this.stopExpectedTurn = options.stopExpectedTurn ?? null;
+    this.truncateSession = options.truncateSession ?? null;
     this.initChannels();
   }
 
@@ -188,6 +191,7 @@ export class ChannelManager {
     if (this.removeQueuedWebuiMessage) options.removeQueuedWebuiMessage = this.removeQueuedWebuiMessage;
     if (this.steerQueuedWebuiMessage) options.steerQueuedWebuiMessage = this.steerQueuedWebuiMessage;
     if (this.stopExpectedTurn) options.stopExpectedTurn = this.stopExpectedTurn;
+    if (this.truncateSession) options.truncateSession = this.truncateSession;
     return options;
   }
 
