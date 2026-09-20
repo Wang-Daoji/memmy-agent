@@ -1182,6 +1182,9 @@ export async function gateway({
     stopExpectedTurn: (sessionKey, expectedTurnId) => (
       loop.stopExpectedTurn(sessionKey, expectedTurnId, "tui")
     ),
+    truncateSession: (sessionKey, beforeTurnId) => (
+      loop.truncateSession(sessionKey, beforeTurnId)
+    ),
     activeGoalStopHandler: async (sessionKey) => {
       const goal = loop.goalRuntime.get(sessionKey);
       if (goal?.status !== "active") return false;

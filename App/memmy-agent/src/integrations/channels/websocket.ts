@@ -220,6 +220,10 @@ type WebSocketChannelOptions = {
     sessionKey: string,
     expectedTurnId: string,
   ) => StopExpectedTurnResult | Promise<StopExpectedTurnResult>;
+  truncateSession?: (
+    sessionKey: string,
+    beforeTurnId: string,
+  ) => { fromIndex: number; fromTurnId: string };
 };
 type SessionDeletionServices = {
   cronService: CronService;
@@ -709,6 +713,7 @@ export class WebSocketChannel extends BaseChannel {
   removeQueuedWebuiMessage: WebSocketChannelOptions["removeQueuedWebuiMessage"] = undefined;
   steerQueuedWebuiMessage: WebSocketChannelOptions["steerQueuedWebuiMessage"] = undefined;
   stopExpectedTurn: WebSocketChannelOptions["stopExpectedTurn"] = undefined;
+  truncateSession: WebSocketChannelOptions["truncateSession"] = undefined;
   goalControlConnections = new Map<string, Set<any>>();
   dispatchingGoalControls = new Map<string, string>();
   readonly computerHistory: ComputerHistoryDemoService;
@@ -741,6 +746,7 @@ export class WebSocketChannel extends BaseChannel {
     this.removeQueuedWebuiMessage = options.removeQueuedWebuiMessage ?? config?.removeQueuedWebuiMessage;
     this.steerQueuedWebuiMessage = options.steerQueuedWebuiMessage ?? config?.steerQueuedWebuiMessage;
     this.stopExpectedTurn = options.stopExpectedTurn ?? config?.stopExpectedTurn;
+    this.truncateSession = options.truncateSession ?? config?.truncateSession;
     const workspacePath = options.workspacePath ?? config?.workspacePath ?? getWorkspacePath();
     this.workspacePath = path.resolve(String(workspacePath));
     this.computerHistory = getComputerHistoryDemoService();

@@ -77,6 +77,7 @@ interface AgentThreadMessagesProps {
   isSending?: boolean;
   sanitizePlatformApiErrors?: boolean;
   memoryRuntimeClient?: Pick<MemoryRuntimeClient, "recallEvidence" | "deleteMemory"> | null;
+  onEditMessage?: (message: AgentChatMessage) => void;
 }
 
 export type AgentDisplayUnit =
@@ -140,6 +141,10 @@ export const AgentThreadMessages = memo(function AgentThreadMessages(props: Agen
   const recallEvidenceAnchors = useMemo(
     () => findRecallEvidenceUserAnchors(units, { isSending: props.isSending }),
     [props.isSending, units]
+  );
+  const editableUserMessageId = useMemo(
+    () => (props.isSending ? null : lastUserMessageId(props.messages)),
+    [props.isSending, props.messages]
   );
   const [manualOpenByActivityKey, setManualOpenByActivityKey] = useState<Record<string, boolean | undefined>>({});
   const previousRunningByActivityKey = useRef<Record<string, boolean>>({});
@@ -224,6 +229,8 @@ export const AgentThreadMessages = memo(function AgentThreadMessages(props: Agen
               sanitizePlatformApiErrors={props.sanitizePlatformApiErrors === true}
               memoryRuntimeClient={props.memoryRuntimeClient}
               recallEvidenceTurnId={recallEvidenceAnchors.get(index)}
+              canEdit={Boolean(editableUserMessageId && unit.message.id === editableUserMessageId && unit.message.turnId)}
+              onEditMessage={props.onEditMessage}
             />
             {unit.message.id === props.afterMessageId ? props.afterMessageContent : null}
           </Fragment>
@@ -247,7 +254,8 @@ function areAgentThreadMessagesPropsEqual(previous: AgentThreadMessagesProps, ne
     && previous.isSending === next.isSending
     && previous.retryWaitStatus === next.retryWaitStatus
     && previous.sanitizePlatformApiErrors === next.sanitizePlatformApiErrors
-    && previous.memoryRuntimeClient === next.memoryRuntimeClient;
+    && previous.memoryRuntimeClient === next.memoryRuntimeClient
+    && previous.onEditMessage === next.onEditMessage;
 }
 
 export function buildAgentDisplayUnits(messages: AgentChatMessage[], options: { chatScopeKey: string; retryWaitStatus?: AgentRetryWaitStatus | null }): AgentDisplayUnit[] {
@@ -436,6 +444,8 @@ interface SingleMessageProps {
   sanitizePlatformApiErrors?: boolean;
   memoryRuntimeClient?: Pick<MemoryRuntimeClient, "recallEvidence" | "deleteMemory"> | null;
   recallEvidenceTurnId?: string;
+  canEdit?: boolean;
+  onEditMessage?: (message: AgentChatMessage) => void;
 }
 
 const SingleMessage = memo(function SingleMessage(props: SingleMessageProps) {
@@ -448,7 +458,13 @@ const SingleMessage = memo(function SingleMessage(props: SingleMessageProps) {
   if (message.role === "user") {
     const hasContent = message.content.trim().length > 0;
     const timestamp = messageTimestamp(message.createdAt, language, t);
-    const copyAction = <MessageBubbleCopyButton text={message.content} align="right" timestamp={timestamp} />;
+    const onEditMessage = props.onEditMessage;
+    const editAction = props.canEdit && onEditMessage ? (
+      <MessageBubbleEditButton onEdit={() => onEditMessage(message)} />
+    ) : null;
+    const bubbleActions = (
+      <MessageBubbleCopyButton text={message.content} align="right" timestamp={timestamp} leadingAction={editAction} />
+    );
     return (
       <div className="agent-user-turn flex min-w-0 justify-end">
         <div className="flex min-w-0 max-w-[75%] flex-col items-end gap-2 w-full">
@@ -464,9 +480,9 @@ const SingleMessage = memo(function SingleMessage(props: SingleMessageProps) {
                 <TurnRecallEvidence
                   turnId={props.recallEvidenceTurnId}
                   client={props.memoryRuntimeClient}
-                  trailingAction={copyAction}
+                  trailingAction={bubbleActions}
                 />
-              ) : copyAction}
+              ) : bubbleActions}
             </div>
           ) : null}
         </div>
@@ -961,7 +977,9 @@ function areSingleMessagePropsEqual(previous: SingleMessageProps, next: SingleMe
     && previous.recallEvidenceTurnId === next.recallEvidenceTurnId
     && previous.deferContentRender === next.deferContentRender
     && previous.deferredRevealDelayMs === next.deferredRevealDelayMs
-    && previous.sanitizePlatformApiErrors === next.sanitizePlatformApiErrors;
+    && previous.sanitizePlatformApiErrors === next.sanitizePlatformApiErrors
+    && previous.canEdit === next.canEdit
+    && previous.onEditMessage === next.onEditMessage;
 }
 
 export function resolveAgentMessageDisplayContent(message: AgentChatMessage, input: { sanitizePlatformApiErrors: boolean; fallback: string }): string {
@@ -1155,11 +1173,33 @@ function assistantReasoningBodyId(reasoningKey: string): string {
   return `agent-reasoning-${sanitizeDomId(reasoningKey)}-body`;
 }
 
+function MessageBubbleEditButton(props: { onEdit: () => void }) {
+  const { t } = useTranslation();
+  const label = t("agent.message.edit");
+  return (
+    <Tooltip content={label}>
+      <button
+        type="button"
+        aria-label={label}
+        className="agent-message-copy-button agent-message-copy-button--right"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onEdit();
+        }}
+      >
+        <Pencil size={16} aria-hidden="true" />
+      </button>
+    </Tooltip>
+  );
+}
+
 function MessageBubbleCopyButton(props: {
   text: string;
   align: "left" | "right";
   available?: boolean;
   timestamp?: MessageTimestamp | null;
+  leadingAction?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -1206,6 +1246,7 @@ function MessageBubbleCopyButton(props: {
       {props.timestamp ? (
         <time className="agent-message-time-label" dateTime={props.timestamp.dateTime}>{props.timestamp.label}</time>
       ) : null}
+      {props.leadingAction}
       <Tooltip content={label}>
         <button
           type="button"

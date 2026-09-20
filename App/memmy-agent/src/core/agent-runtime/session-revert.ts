@@ -1,8 +1,8 @@
 import type { SessionManager } from "../session/manager.js";
 
-/** Minimal transcript interface needed for appending the revert marker. */
+/** Minimal transcript interface needed to record the revert marker. */
 export interface RevertTranscriptSink {
-  append(sessionKey: string, record: Record<string, any>): void;
+  turnReverted(sessionKey: string, fromTurnId: string, fromMessageIndex: number): void;
 }
 
 /** Minimal DAG interface needed to delete turns on revert. */
@@ -97,17 +97,8 @@ export function truncateSessionAt(
   // 5. Clean up session-dag: delete the reverted turn and all later turns (incl. nodes + edges).
   deps.sessionDag?.deleteTurnsFromSession(sessionKey, beforeTurnId);
 
-  // 6. Append a turn_reverted marker to the GUI transcript so the replay path can apply it.
-  if (transcript) {
-    const chatId = sessionKey.startsWith("websocket:") ? sessionKey.slice("websocket:".length) : sessionKey;
-    transcript.append(sessionKey, {
-      event: "turn_reverted",
-      chat_id: chatId,
-      from_turn_id: beforeTurnId,
-      from_message_index: fromIndex,
-      at: new Date().toISOString(),
-    });
-  }
+  // 6. Record a turn_reverted marker in the GUI transcript so the replay path can apply it.
+  transcript?.turnReverted(sessionKey, beforeTurnId, fromIndex);
 
   return { fromIndex, fromTurnId: beforeTurnId };
 }
