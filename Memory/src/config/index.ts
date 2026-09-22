@@ -494,7 +494,7 @@ export const DEFAULT_MEMMY_CONFIG: MemmyConfig = {
       llmFilterEnabled: true,
       llmFilterMaxKeep: 8,
       llmFilterFallbackMaxKeep: 6,
-      llmFilterMinCandidates: 2,
+      llmFilterMinCandidates: 1,
       llmFilterCandidateBodyChars: 500,
       queryExtractHistoryTurns: 5,
       queryExtractHistoryTextChars: 200,

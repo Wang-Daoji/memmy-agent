@@ -1077,7 +1077,7 @@ describe("MemoryService / retrieval / query and filtering", () => {
     db.close();
   });
 
-  it("skips the plugin retrieval filter for a single candidate by default", async () => {
+  it("runs the plugin retrieval filter for a single candidate by default", async () => {
     const root = createTestRoot("mindock-memory-llm-filter-single-");
     const db = new MemoryDb({
       path: join(root, "memory.sqlite")
@@ -1111,6 +1111,60 @@ describe("MemoryService / retrieval / query and filtering", () => {
         source: "codex",
         profileId: "jiang",
         userId: "user-filter-single"
+      },
+      query: "pytest fixture"
+    });
+
+    expect(recall.hits).toHaveLength(1);
+    expect(calls.filter((call) => call.options.operation === "retrieval.retrieval.filter.v5")).toHaveLength(1);
+    db.close();
+  });
+
+  it("skips the plugin retrieval filter when candidates stay below llmFilterMinCandidates", async () => {
+    const root = createTestRoot("mindock-memory-llm-filter-min-candidates-");
+    const db = new MemoryDb({
+      path: join(root, "memory.sqlite")
+    });
+    const config = DEFAULT_MEMMY_CONFIG;
+    const calls: Array<{
+      messages: Array<{ role: string; content: string }>;
+      options: { operation: string };
+    }> = [];
+    const service = createTestMemoryService({
+      db,
+      mode: "dev",
+      llm: createRankedRetrievalFilterLlm(calls, [1]),
+      embedder: createCapturingEmbedder([]),
+      config: {
+        ...config,
+        algorithm: {
+          ...config.algorithm,
+          retrieval: {
+            ...config.algorithm.retrieval,
+            llmFilterMinCandidates: 2
+          }
+        }
+      }
+    });
+    const session = service.openSession({
+      namespace: {
+        source: "codex",
+        profileId: "jiang",
+        userId: "user-filter-min-candidates"
+      }
+    });
+    service.completeTurn("turn-filter-min-candidates-1", {
+      sessionId: session.sessionId,
+      query: "Remember that pytest fixture setup failed",
+      answer: "Captured the pytest fixture failure context."
+    });
+    await service.runWorkerOnce(20);
+
+    const recall = await service.search({
+      namespace: {
+        source: "codex",
+        profileId: "jiang",
+        userId: "user-filter-min-candidates"
       },
       query: "pytest fixture"
     });
