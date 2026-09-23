@@ -47,7 +47,13 @@ describe("ModelPage source", () => {
     expect(pageSource).toContain("testModelConnection");
     expect(pageSource).toContain("clients?.config");
     expect(pageSource).toContain("clients.config.getModelConfig()");
-    expect(pageSource).toContain("clients.config.saveModelCatalog(modelConfigInput(workspace))");
+    expect(pageSource).toContain("clients.config.saveModelCatalog({");
+    expect(pageSource).toContain("...modelConfigInput(workspace)");
+    expect(pageSource).toContain("filterBackend,");
+    expect(pageSource).toContain('t("apiKey.modelPage.filterBackendLlm")');
+    expect(pageSource).toContain('t("apiKey.modelPage.filterBackendJev")');
+    expect(messagesSource).toContain('"apiKey.modelPage.filterBackendLlm": "现有 LLM 过滤"');
+    expect(messagesSource).toContain('"apiKey.modelPage.jevFilterKey": "检索过滤 Jev API Key"');
     expect(pageSource).not.toContain("persistLoginModeSelection({");
     expect(pageSource).not.toContain("dispatch(appActions.navigate(byokCompletion.nextRoute))");
     expect(pageSource).not.toContain('dispatch(appActions.navigate("/onboarding"))');

@@ -169,8 +169,27 @@ function mergeModelConfig(config: ConfigRecord, input: ModelConfigInput): Config
     modelAssignments
   };
   projectMemoryConfig(next, modelAssignments, config, existingAssignments);
+  writeRetrievalFilterConfig(next, input);
   patchCompatibilityDefault(next, modelAssignments);
   return next;
+}
+
+function writeRetrievalFilterConfig(config: ConfigRecord, input: ModelConfigInput): void {
+  if (input.filterBackend === undefined && input.jevApiKey === undefined) return;
+  const memory = { ...record(config.memmyMemory) };
+  if (input.filterBackend !== undefined) {
+    const algorithm = { ...record(memory.algorithm) };
+    const retrieval = { ...record(algorithm.retrieval) };
+    retrieval.filterBackend = input.filterBackend;
+    algorithm.retrieval = retrieval;
+    memory.algorithm = algorithm;
+  }
+  if (input.jevApiKey !== undefined) {
+    const jev = { ...record(memory.jev) };
+    jev.apiKey = input.jevApiKey;
+    memory.jev = jev;
+  }
+  config.memmyMemory = memory;
 }
 
 function projectMemoryConfig(
@@ -755,10 +774,14 @@ function revisionFor(config: ConfigRecord): string {
 function memorySettings(config: ConfigRecord): {
   roleRouting: { summary: "follow" | "fixed"; evolution: "follow" | "fixed" };
   embeddingMode: "cloud" | "local" | "custom";
+  filterBackend: "llm" | "jev";
+  jevApiKeyMasked: string;
 } {
   const memory = record(config.memmyMemory);
   const routing = record(memory.roleRouting);
   const embedding = record(memory.embedding);
+  const retrieval = record(record(memory.algorithm).retrieval);
+  const jev = record(memory.jev);
   const appMode = record(config.app).userMode === "account" ? "account" : "byok";
   return {
     roleRouting: {
@@ -767,7 +790,9 @@ function memorySettings(config: ConfigRecord): {
     },
     embeddingMode: embedding.mode === "cloud" || embedding.mode === "custom" || embedding.mode === "local"
       ? embedding.mode
-      : appMode === "account" ? "cloud" : "local"
+      : appMode === "account" ? "cloud" : "local",
+    filterBackend: retrieval.filterBackend === "jev" ? "jev" : "llm",
+    jevApiKeyMasked: maskSecret(stringValue(jev.apiKey))
   };
 }
 

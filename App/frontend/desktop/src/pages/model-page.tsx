@@ -96,6 +96,11 @@ export function ModelPage() {
   const [skill, setSkill] = useState<ModelConfig>(() => initialModelForm.skillModel);
   const [savePending, setSavePending] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ text: string; tone: "error" | "success" } | null>(null);
+  const [filterBackend, setFilterBackend] = useState<"llm" | "jev">(() =>
+    state.modelConfig.catalog?.memorySettings?.filterBackend === "jev" ? "jev" : "llm"
+  );
+  const [jevApiKey, setJevApiKey] = useState("");
+  const [showJevKey, setShowJevKey] = useState(false);
   const skillValues = createModelFormValues(skill, primaryModel);
   const evolutionModel = modelFormValuesAsPrimary(skillValues);
   const memoryValues = createModelFormValues(mem, evolutionModel);
@@ -176,7 +181,11 @@ export function ModelPage() {
         capabilities: ["memory_summary"]
       });
       workspace = assignCatalogPreset(memory.workspace, "byok", "memory_summary", memory.presetId);
-      const savedConfig = await clients.config.saveModelCatalog(modelConfigInput(workspace));
+      const savedConfig = await clients.config.saveModelCatalog({
+        ...modelConfigInput(workspace),
+        filterBackend,
+        ...(jevApiKey.trim() ? { jevApiKey: jevApiKey.trim() } : {})
+      });
       dispatch(appActions.modelConfigUpdated(savedConfig));
       dispatch(appActions.navigate("/api-key-optional"));
       track({ name: "model_config_saved", params: { page_path: "/api-key-models" }, consentTier: "basic" });
@@ -221,6 +230,46 @@ export function ModelPage() {
           onPatch={patchMem}
           onTest={() => testModelConfigConnection(mem, evolutionModel, patchMem, "memory")}
         />
+
+        <div className="mb-4 rounded-card border border-border-stone bg-canvas-oat/40 p-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setFilterBackend("llm")}
+              className={`rounded-btn border px-3 py-2 text-sm cursor-pointer ${
+                filterBackend === "llm"
+                  ? "border-action-sky text-action-sky bg-white"
+                  : "border-border-stone text-text-ink/65"
+              }`}
+            >
+              {t("apiKey.modelPage.filterBackendLlm")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterBackend("jev")}
+              className={`rounded-btn border px-3 py-2 text-sm cursor-pointer ${
+                filterBackend === "jev"
+                  ? "border-action-sky text-action-sky bg-white"
+                  : "border-border-stone text-text-ink/65"
+              }`}
+            >
+              {t("apiKey.modelPage.filterBackendJev")}
+            </button>
+          </div>
+          {filterBackend === "jev" ? (
+            <div className="mt-3">
+              <PasswordField
+                label={t("apiKey.modelPage.jevFilterKey")}
+                placeholder="sk-..."
+                value={jevApiKey}
+                onChange={setJevApiKey}
+                show={showJevKey}
+                onToggle={() => setShowJevKey((current) => !current)}
+              />
+              <p className="mt-1.5 text-xs text-text-ink/50">{t("apiKey.modelPage.jevFilterHint")}</p>
+            </div>
+          ) : null}
+        </div>
 
         <ModelCard
           icon={<Cog size={18} className="text-action-sky" />}

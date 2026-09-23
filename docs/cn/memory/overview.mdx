@@ -165,7 +165,9 @@ relevance   = max(channelScore) + 层级 bonus + RRF bonus
 
 ### LLM 最终过滤
 
-默认在机械排序后优先使用 evolution 模型做相关性过滤；未配置 evolution 模型时会尝试 summary 模型：
+默认 `algorithm.retrieval.filterBackend` 是 `llm`。机械排序后先用 summary 模型做相关性过滤；这次调用失败才改用 evolution。设为 `jev` 时，这一步只调用 Jev `jev-1.13.0`，不调用 summary 或 evolution。Jev 的 key 来自 `MEMMY_JEV_API_KEY` 或 `memmyMemory.jev.apiKey`。
+
+`llm` 且 summary、evolution 都未配置时，状态是 `llm_filter:no_llm`，保留机械排序的前 `llmFilterFallbackMaxKeep` 条。`jev` 且没有 key 时也是 `llm_filter:no_llm`，不改打 summary。`jev` 调用失败或响应无效时状态是 `llm_filter:llm_failed_fallback_cap`，同样按保底上限截断，不改打原来的 LLM。
 
 | 配置 | 默认值 | 作用 |
 | --- | ---: | --- |
@@ -262,6 +264,7 @@ memmyMemory:
       skillInjectionMode: summary
       skillSummaryChars: 200
       llmFilterEnabled: true
+      filterBackend: llm
       llmFilterMaxKeep: 8
       llmFilterFallbackMaxKeep: 6
       llmFilterMinCandidates: 1

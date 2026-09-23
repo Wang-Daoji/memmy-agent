@@ -165,7 +165,9 @@ relevance   = max(channelScore) + layer bonus + RRF bonus
 
 ### Final LLM filter
 
-After mechanical ranking, Memmy prefers the evolution model for relevance filtering and falls back to the summary model when evolution is not configured:
+`algorithm.retrieval.filterBackend` defaults to `llm`. After mechanical ranking, Memmy filters with the summary model and uses the evolution model only when that call throws. `jev` calls Jev `jev-1.13.0` for this step and does not call summary or evolution. The Jev key comes from `MEMMY_JEV_API_KEY` or `memmyMemory.jev.apiKey`.
+
+When the backend is `llm` and neither summary nor evolution is configured, the status is `llm_filter:no_llm` and the top `llmFilterFallbackMaxKeep` mechanical candidates are kept. `jev` without a key uses the same status and does not call summary. A failed or invalid Jev response uses `llm_filter:llm_failed_fallback_cap`, applies the same fallback cap, and does not call the original LLM.
 
 | Setting | Default | Effect |
 | --- | ---: | --- |
@@ -262,6 +264,7 @@ memmyMemory:
       skillInjectionMode: summary
       skillSummaryChars: 200
       llmFilterEnabled: true
+      filterBackend: llm
       llmFilterMaxKeep: 8
       llmFilterFallbackMaxKeep: 6
       llmFilterMinCandidates: 1

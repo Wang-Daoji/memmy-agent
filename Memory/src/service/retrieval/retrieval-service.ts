@@ -67,6 +67,11 @@ import {
 } from "../turn/turn-normalization.js";
 import { IndexedCandidatePool } from "./indexed-candidate-pool.js";
 import { filterL1TraceSpanRecallHits } from "./l1-trace-span-filter.js";
+import {
+  describeRetrievalFilterCandidate,
+  filterHitsWithJev,
+  RETRIEVAL_FILTER_TIMEOUT_MS
+} from "./jev-retrieval-filter.js";
 
 type InternalMemorySearchRequest = MemorySearchRequest & {
   episodeId?: string;
@@ -90,7 +95,7 @@ type RetrievalTimeFilter = NonNullable<RetrievalQueryExtract["timeFilter"]>;
 
 const RETRIEVAL_QUERY_EXTRACT_TIMEOUT_MS = 60_000;
 
-const RETRIEVAL_FILTER_TIMEOUT_MS = 30_000;
+const JEV_FILTER_KEEP_NOUL_ABOVE = 0.5;
 
 const QUERY_REWRITE_TIMEOUT_MS = 30_000;
 
@@ -157,25 +162,6 @@ export function readableMemoryIdKind(id: string): ReadableMemoryIdKind {
   if (id.startsWith("episode_")) return "episode";
   if (id.startsWith("raw_")) return "raw";
   return "unknown";
-}
-
-function describeRetrievalFilterCandidate(hit: RecallHit, bodyChars: number): string {
-  const body = clip(hit.snippet, bodyChars);
-  const title = clip(hit.title ?? hit.id, 120);
-  switch (hit.memoryLayer) {
-    case "UserMemory":
-      return `[USER MEMORY] ${title}${body ? `\n   ${body}` : ""}`;
-    case "Skill":
-      return `[SKILL] ${title}${body ? `\n   ${body}` : ""}`;
-    case "L1":
-      return hit.kind === "work_memory"
-        ? `[WORK MEMORY] ${body || title}`
-        : `[TRACE] ${body || title}`;
-    case "L2":
-      return `[EXPERIENCE] ${title}${body ? `\n   ${body}` : ""}`;
-    case "L3":
-      return `[WORLD-MODEL] ${title}${body ? `\n   ${body}` : ""}`;
-  }
 }
 
 function uniqMemories(memories: readonly MemoryRow[]): MemoryRow[] {
@@ -2346,6 +2332,9 @@ export class RetrievalService {
     if (!query.trim()) {
       return { hits, status: [] };
     }
+    if (config.filterBackend === "jev") {
+      return this.filterRecallHitsWithJev(query, hits, config);
+    }
     if (!filterLlm?.isConfigured()) {
       return {
         hits: llmFilterFallbackCap(hits, config.llmFilterFallbackMaxKeep),
@@ -2467,6 +2456,74 @@ export class RetrievalService {
         status: ["llm_filter:llm_failed_fallback_cap"]
       };
     }
+  }
+
+  private async filterRecallHitsWithJev(
+    query: string,
+    hits: RecallHit[],
+    config: MemmyConfig["algorithm"]["retrieval"]
+  ): Promise<{ hits: RecallHit[]; status: string[] }> {
+    const apiKey = this.deps.config.jev?.apiKey?.trim() ?? "";
+    if (!apiKey) {
+      return {
+        hits: llmFilterFallbackCap(hits, config.llmFilterFallbackMaxKeep),
+        status: ["llm_filter:no_llm"]
+      };
+    }
+    const outcome = await filterHitsWithJev(
+      query,
+      hits,
+      apiKey,
+      Math.max(120, config.llmFilterCandidateBodyChars)
+    );
+    if ("error" in outcome) {
+      pipelineLogger.warn("fallback.used", {
+        operation: "jev-1.13.0",
+        pipeline: "retrieval.filter",
+        fallback: "candidate_cap",
+        candidateCount: hits.length
+      });
+      return {
+        hits: llmFilterFallbackCap(hits, config.llmFilterFallbackMaxKeep),
+        status: ["llm_filter:llm_failed_fallback_cap"]
+      };
+    }
+    pipelineLogger.debug("jev_filter.scores", {
+      scores: outcome.scores.map((score, index) => ({
+        index,
+        noul: score.noul,
+        confidence: score.confidence
+      }))
+    });
+    const ranked = outcome.scores
+      .map((score, index) => ({ score, index }))
+      .filter((item) => item.score.noul > JEV_FILTER_KEEP_NOUL_ABOVE)
+      .sort((left, right) => right.score.noul - left.score.noul || left.index - right.index);
+    if (ranked.length === 0) {
+      return {
+        hits: [],
+        status: ["llm_filter:llm_dropped_all"]
+      };
+    }
+    const selected = ranked.slice(0, Math.max(0, config.llmFilterMaxKeep));
+    if (selected.length === 0) {
+      pipelineLogger.warn("fallback.used", {
+        operation: "jev-1.13.0",
+        pipeline: "retrieval.filter",
+        fallback: "candidate_cap",
+        reason: "invalid_selection_indices",
+        candidateCount: hits.length
+      });
+      return {
+        hits: llmFilterFallbackCap(hits, config.llmFilterFallbackMaxKeep),
+        status: ["llm_filter:llm_failed_fallback_cap"]
+      };
+    }
+    const kept = selected.map((item) => hits[item.index]!).filter(Boolean);
+    return {
+      hits: kept,
+      status: kept.length === hits.length ? ["llm_filter:llm_kept_all"] : ["llm_filter:llm_filtered"]
+    };
   }
 
   private async planQueryRewrite(rawQuery: string): Promise<string[]> {

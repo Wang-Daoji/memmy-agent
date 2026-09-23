@@ -488,7 +488,9 @@ describe("model config catalog", () => {
     });
     expect(saved.memorySettings).toEqual({
       roleRouting: { summary: "follow", evolution: "fixed" },
-      embeddingMode: "custom"
+      embeddingMode: "custom",
+      filterBackend: "llm",
+      jevApiKeyMasked: ""
     });
 
     const followInput = structuredClone(assigned);
@@ -499,6 +501,43 @@ describe("model config catalog", () => {
     expect(followed.memorySettings?.roleRouting.summary).toBe("follow");
     expect(followed.memorySettings?.roleRouting.evolution).toBe("follow");
     expect((YAML.parse(readFileSync(file, "utf8")) as any).memmyMemory.roleRouting.summary).toBe("follow");
+  });
+
+  it("writes the retrieval filter backend and Jev key without changing summary or evolution", async () => {
+    const file = fixture();
+    const created = await writeModelConfigCatalog(file, openAiInput((await readModelConfigCatalog(file)).configRevision));
+    const presetId = created.providers[0]!.models[0]!.presetId;
+    const assigned = openAiInput(created.configRevision, presetId);
+    assigned.modelAssignments.byok = {
+      ...emptyAssignment(),
+      agent: { candidates: [presetId], default: presetId },
+      memorySummary: presetId,
+      memoryEvolution: presetId
+    };
+    const baseline = await writeModelConfigCatalog(file, assigned);
+    const before = (YAML.parse(readFileSync(file, "utf8")) as any).memmyMemory;
+    const withJev = openAiInput(baseline.configRevision, presetId);
+    withJev.modelAssignments = structuredClone(baseline.modelAssignments);
+    withJev.filterBackend = "jev";
+    withJev.jevApiKey = "sk-jev-filter-key";
+    const saved = await writeModelConfigCatalog(file, withJev);
+    const raw = (YAML.parse(readFileSync(file, "utf8")) as any).memmyMemory;
+    expect(raw.algorithm.retrieval.filterBackend).toBe("jev");
+    expect(raw.jev.apiKey).toBe("sk-jev-filter-key");
+    expect(raw.summary).toEqual(before.summary);
+    expect(raw.evolution).toEqual(before.evolution);
+    expect(saved.memorySettings).toMatchObject({
+      filterBackend: "jev",
+      jevApiKeyMasked: "sk-••••-key"
+    });
+
+    const kept = openAiInput(saved.configRevision, presetId);
+    kept.modelAssignments = structuredClone(saved.modelAssignments);
+    const unchanged = await writeModelConfigCatalog(file, kept);
+    const afterOmit = (YAML.parse(readFileSync(file, "utf8")) as any).memmyMemory;
+    expect(afterOmit.algorithm.retrieval.filterBackend).toBe("jev");
+    expect(afterOmit.jev.apiKey).toBe("sk-jev-filter-key");
+    expect(unchanged.memorySettings?.filterBackend).toBe("jev");
   });
 
   it("rejects duplicate endpoint definitions, invalid protocol capabilities, and duplicate models", async () => {

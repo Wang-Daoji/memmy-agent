@@ -254,6 +254,7 @@ export interface AlgorithmConfig {
     skillInjectionMode: "summary" | "full";
     skillSummaryChars: number;
     llmFilterEnabled: boolean;
+    filterBackend: "llm" | "jev";
     llmFilterMaxKeep: number;
     llmFilterFallbackMaxKeep: number;
     llmFilterMinCandidates: number;
@@ -279,6 +280,9 @@ export interface MemmyConfig {
   embedding: EmbeddingConfig;
   agentAccess: AgentAccessConfig;
   algorithm: AlgorithmConfig;
+  jev?: {
+    apiKey?: string;
+  };
 }
 
 const ACCOUNT_EVOLUTION_THINKING_BUDGET = 1_000;
@@ -492,6 +496,7 @@ export const DEFAULT_MEMMY_CONFIG: MemmyConfig = {
       skillInjectionMode: "summary",
       skillSummaryChars: 200,
       llmFilterEnabled: true,
+      filterBackend: "llm",
       llmFilterMaxKeep: 8,
       llmFilterFallbackMaxKeep: 6,
       llmFilterMinCandidates: 1,
@@ -607,8 +612,12 @@ function configFromEnv(): Record<string, unknown> {
       retrieval: compactRecord({
         readOnlyInjectionProfile:
           process.env.MEMMY_RETRIEVAL_INJECTION_PROFILE ??
-          process.env.MEMMY_READONLY_INJECTION_PROFILE
+          process.env.MEMMY_READONLY_INJECTION_PROFILE,
+        filterBackend: retrievalFilterBackendEnv()
       })
+    }),
+    jev: compactRecord({
+      apiKey: nonEmptyEnv("MEMMY_JEV_API_KEY")
     })
   });
 }
@@ -640,7 +649,10 @@ function normalizeConfig(input: Record<string, unknown>): MemmyConfig {
     evolution,
     embedding,
     agentAccess,
-    algorithm
+    algorithm,
+    jev: {
+      apiKey: optionalString(asRecord(input.jev).apiKey)
+    }
   };
 }
 
@@ -1230,6 +1242,10 @@ function normalizeAlgorithm(input: Record<string, unknown>): AlgorithmConfig {
       skillInjectionMode: skillInjectionMode(retrieval.skillInjectionMode, DEFAULT_MEMMY_CONFIG.algorithm.retrieval.skillInjectionMode),
       skillSummaryChars: numberValue(retrieval.skillSummaryChars, DEFAULT_MEMMY_CONFIG.algorithm.retrieval.skillSummaryChars),
       llmFilterEnabled: booleanValue(retrieval.llmFilterEnabled, DEFAULT_MEMMY_CONFIG.algorithm.retrieval.llmFilterEnabled),
+      filterBackend: retrievalFilterBackend(
+        retrieval.filterBackend,
+        DEFAULT_MEMMY_CONFIG.algorithm.retrieval.filterBackend
+      ),
       llmFilterMaxKeep: numberValue(retrieval.llmFilterMaxKeep, DEFAULT_MEMMY_CONFIG.algorithm.retrieval.llmFilterMaxKeep),
       llmFilterFallbackMaxKeep: numberValue(retrieval.llmFilterFallbackMaxKeep, DEFAULT_MEMMY_CONFIG.algorithm.retrieval.llmFilterFallbackMaxKeep),
       llmFilterMinCandidates: numberValue(retrieval.llmFilterMinCandidates, DEFAULT_MEMMY_CONFIG.algorithm.retrieval.llmFilterMinCandidates),
@@ -1270,6 +1286,20 @@ function skillOutputLanguageMode(value: unknown, fallback: "follow_policy" | "zh
   const mode = optionalString(value);
   if (mode === "follow_policy" || mode === "zh" || mode === "en") return mode;
   return fallback;
+}
+
+function retrievalFilterBackend(value: unknown, fallback: "llm" | "jev"): "llm" | "jev" {
+  return value === "llm" || value === "jev" ? value : fallback;
+}
+
+function retrievalFilterBackendEnv(): "llm" | "jev" | undefined {
+  const value = process.env.MEMMY_RETRIEVAL_FILTER_BACKEND?.trim();
+  return value === "llm" || value === "jev" ? value : undefined;
+}
+
+function nonEmptyEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 function retrievalTagFilter(value: unknown, fallback: "auto" | "on" | "off"): "auto" | "on" | "off" {

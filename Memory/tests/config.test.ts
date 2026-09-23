@@ -812,6 +812,33 @@ describe("memmy memory config", () => {
       join(homedir(), ".memmy", "config.yaml")
     ]);
   });
+
+  it("defaults the retrieval filter backend to llm and overlays only a valid Jev key", () => {
+    const root = tempRoot();
+    const configPath = join(root, "config.yaml");
+    writeFileSync(configPath, YAML.stringify({ memmyMemory: {} }));
+    expect(loadMemmyConfig(configPath).config.algorithm.retrieval.filterBackend).toBe("llm");
+    expect(loadMemmyConfig(configPath).config.jev?.apiKey).toBeUndefined();
+
+    writeFileSync(configPath, YAML.stringify({
+      memmyMemory: {
+        algorithm: { retrieval: { filterBackend: "jev" } },
+        jev: { apiKey: "yaml-jev-key" }
+      }
+    }));
+    expect(loadMemmyConfig(configPath).config.algorithm.retrieval.filterBackend).toBe("jev");
+    expect(loadMemmyConfig(configPath).config.jev?.apiKey).toBe("yaml-jev-key");
+
+    setEnv("MEMMY_RETRIEVAL_FILTER_BACKEND", "llm");
+    setEnv("MEMMY_JEV_API_KEY", "env-jev-key");
+    expect(loadMemmyConfig(configPath).config.algorithm.retrieval.filterBackend).toBe("llm");
+    expect(loadMemmyConfig(configPath).config.jev?.apiKey).toBe("env-jev-key");
+
+    setEnv("MEMMY_RETRIEVAL_FILTER_BACKEND", "nope");
+    setEnv("MEMMY_JEV_API_KEY", "  ");
+    expect(loadMemmyConfig(configPath).config.algorithm.retrieval.filterBackend).toBe("jev");
+    expect(loadMemmyConfig(configPath).config.jev?.apiKey).toBe("yaml-jev-key");
+  });
 });
 
 function tempRoot(): string {

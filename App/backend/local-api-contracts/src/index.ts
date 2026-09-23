@@ -899,7 +899,9 @@ export type ModelAssignments = z.infer<typeof ModelAssignmentsSchema>;
 export const ModelConfigInputSchema = z.object({
     configRevision: z.string().min(1),
     providers: z.array(TextModelProviderInputSchema),
-    modelAssignments: ModelAssignmentsSchema
+    modelAssignments: ModelAssignmentsSchema,
+    filterBackend: z.enum(["llm", "jev"]).optional(),
+    jevApiKey: z.string().trim().min(1).optional()
 });
 export type ModelConfigInput = z.infer<typeof ModelConfigInputSchema>;
 
@@ -1061,7 +1063,9 @@ export const MemoryRuntimeModelSettingsSchema = z.object({
         summary: z.enum(["follow", "fixed"]),
         evolution: z.enum(["follow", "fixed"])
     }),
-    embeddingMode: z.enum(["cloud", "local", "custom"])
+    embeddingMode: z.enum(["cloud", "local", "custom"]),
+    filterBackend: z.enum(["llm", "jev"]),
+    jevApiKeyMasked: z.string()
 });
 export type MemoryRuntimeModelSettings = z.infer<typeof MemoryRuntimeModelSettingsSchema>;
 

@@ -20,6 +20,7 @@ import {
   parallelMemoryLaneLimit,
   queryExtractHistoryFromRawTurns
 } from "../../../src/service/retrieval/retrieval-service.js";
+import { jevFilterTransport } from "../../../src/service/retrieval/jev-retrieval-filter.js";
 import {
   insertActivePolicyMemory,
   insertActiveSkillMemoryForTest,
@@ -1516,7 +1517,263 @@ describe("MemoryService / retrieval / query and filtering", () => {
     expect(extractInputs[0]!.endsWith(`\n\nCURRENT USER INPUT:\n${atLimitQuery}`)).toBe(true);
     db.close();
   });
+
+  it("filters with one Jev request and keeps only noul scores above 0.5", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const posts: Array<{ url: string; body: { model: string; questions: Record<string, unknown> } }> = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async (input: { url: string; body: { model: string; questions: Record<string, unknown> } }) => {
+      posts.push({ url: input.url, body: input.body });
+      return Object.fromEntries(Object.keys(input.body.questions).map((key, index) => [
+        key,
+        { noul: index === 0 ? 0.9 : 0.5, confidence: 0.25 }
+      ]));
+    }) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, { apiKey: "jev-key", llmFilterMaxKeep: 8 });
+      await seedTwoFilterTraces(service, db, "jev-keep");
+      const recall = await service.search({
+        namespace: filterNamespace("jev-keep"),
+        query: "python pytest failure"
+      });
+      expect(posts).toHaveLength(1);
+      expect(posts[0]!.url).toBe("https://api.typesafe.ai/v1/systemone");
+      expect(posts[0]!.body.model).toBe("jev-1.13.0");
+      expect(Object.keys(posts[0]!.body.questions).length).toBeGreaterThan(0);
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
+      expect(calls.some((call) => call.options.operation === "retrieval.retrieval.query.extract.v3")).toBe(true);
+      expect(recall.hits).toHaveLength(1);
+      expect(recall.status.some((status) => status === "llm_filter:llm_filtered" || status === "llm_filter:llm_kept_all")).toBe(true);
+      const searchLog = service.apiLogs({ tools: ["memory_search"], limit: 1 }).logs[0]!;
+      const filterStats = (JSON.parse(searchLog.outputJson) as {
+        stats: { llmFilter: { durationMs?: number } };
+      }).stats;
+      expect(typeof filterStats.llmFilter.durationMs).toBe("number");
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
+  it("drops every Jev candidate at noul 0.5 and does not call the LLM filter", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async (input: { body: { questions: Record<string, unknown> } }) => (
+      Object.fromEntries(Object.keys(input.body.questions).map((key) => [key, { noul: 0.5, confidence: 1 }]))
+    )) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, { apiKey: "jev-key" });
+      await seedTwoFilterTraces(service, db, "jev-drop");
+      const recall = await service.search({
+        namespace: filterNamespace("jev-drop"),
+        query: "python pytest failure"
+      });
+      expect(recall.hits).toEqual([]);
+      expect(recall.status).toContain("llm_filter:llm_dropped_all");
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
+  it("caps Jev transport failures without calling evolution", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const evolutionCalls: string[] = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async () => {
+      throw new Error("jev down");
+    }) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, {
+        apiKey: "jev-key",
+        llmFilterFallbackMaxKeep: 2,
+        evolutionCalls
+      });
+      await seedTwoFilterTraces(service, db, "jev-fail");
+      const recall = await service.search({
+        namespace: filterNamespace("jev-fail"),
+        query: "python pytest failure"
+      });
+      expect(recall.status).toContain("llm_filter:llm_failed_fallback_cap");
+      expect(recall.hits.length).toBeLessThanOrEqual(2);
+      expect(recall.hits.length).toBeGreaterThan(0);
+      expect(evolutionCalls).toEqual([]);
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
+      const searchLog = service.apiLogs({ tools: ["memory_search"], limit: 1 }).logs[0]!;
+      const filterStats = (JSON.parse(searchLog.outputJson) as {
+        stats: { llmFilter: { durationMs?: number } };
+      }).stats;
+      expect(typeof filterStats.llmFilter.durationMs).toBe("number");
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
+  it("uses the mechanical cap when Jev is selected without a key", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const posts: unknown[] = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async () => {
+      posts.push(true);
+      return {};
+    }) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, { llmFilterFallbackMaxKeep: 6 });
+      await seedTwoFilterTraces(service, db, "jev-nokey");
+      const recall = await service.search({
+        namespace: filterNamespace("jev-nokey"),
+        query: "python pytest failure"
+      });
+      expect(posts).toEqual([]);
+      expect(recall.status).toContain("llm_filter:no_llm");
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
+  it("does not call Jev when the filter is disabled, the query is blank, or candidates are below the minimum", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const posts: unknown[] = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async () => {
+      posts.push(true);
+      return {};
+    }) as typeof jevFilterTransport.post;
+    try {
+      const disabled = jevFilterService(calls, { apiKey: "jev-key", llmFilterEnabled: false });
+      await seedTwoFilterTraces(disabled.service, disabled.db, "jev-off");
+      const disabledRecall = await disabled.service.search({
+        namespace: filterNamespace("jev-off"),
+        query: "python pytest failure"
+      });
+      expect(disabledRecall.status).toContain("llm_filter:disabled");
+      disabled.db.close();
+
+      const blank = jevFilterService(calls, { apiKey: "jev-key" });
+      await seedTwoFilterTraces(blank.service, blank.db, "jev-blank");
+      const blankRecall = await blank.service.search({
+        namespace: filterNamespace("jev-blank"),
+        query: "   "
+      });
+      expect(blankRecall.status).not.toContain("llm_filter:llm_filtered");
+      blank.db.close();
+
+      const sparse = jevFilterService(calls, { apiKey: "jev-key", llmFilterMinCandidates: 2 });
+      const sparseSession = sparse.service.openSession({ namespace: filterNamespace("jev-sparse") });
+      const turn = sparse.service.completeTurn("turn-jev-sparse", {
+        sessionId: sparseSession.sessionId,
+        episodeId: "episode_jev_sparse",
+        query: "Python pytest fixture failed",
+        answer: "Inspected pytest fixture setup."
+      });
+      makeTraceEligibleForL2(sparse.db, turn.l1MemoryId);
+      await sparse.service.runWorkerOnce(20, { priorityCohortOnly: true });
+      await sparse.service.search({
+        namespace: filterNamespace("jev-sparse"),
+        query: "python pytest failure"
+      });
+      sparse.db.close();
+      expect(posts).toEqual([]);
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
 });
+
+function filterNamespace(userId: string) {
+  return { source: "codex", profileId: "jiang", userId };
+}
+
+function jevFilterService(
+  calls: Array<{ options: { operation: string } }>,
+  options: {
+    apiKey?: string;
+    llmFilterEnabled?: boolean;
+    llmFilterMaxKeep?: number;
+    llmFilterFallbackMaxKeep?: number;
+    llmFilterMinCandidates?: number;
+    evolutionCalls?: string[];
+  }
+) {
+  const db = new MemoryDb({ path: join(createTestRoot(`mindock-memory-jev-filter-${options.apiKey ?? "none"}-`), "memory.sqlite") });
+  const config = DEFAULT_MEMMY_CONFIG;
+  const service = createTestMemoryService({
+    db,
+    mode: "dev",
+    llm: {
+      ...createRankedRetrievalFilterLlm([], [1]),
+      async completeJson<T extends Record<string, unknown>>(messages: LlmMessage[], options: LlmCompletionOptions): Promise<T> {
+        if (options.operation !== "capture.summarize") calls.push({ options });
+        if (options.operation === "retrieval.retrieval.query.extract.v3") {
+          return {
+            queryVecText: messages.find((message) => message.role === "user")?.content ?? "",
+            keywords: []
+          } as unknown as T;
+        }
+        if (options.operation === "capture.summarize") {
+          return acceptedCaptureDecision("durable retrieval test trace", messages) as unknown as T;
+        }
+        return { ranked: [1], sufficient: true } as unknown as T;
+      }
+    },
+    skillLlm: {
+      config: { ...DEFAULT_MEMMY_CONFIG.evolution, provider: "host", model: "evolution", endpoint: "http://127.0.0.1/evolution" },
+      isConfigured() { return true; },
+      async complete() { return "{}"; },
+      async completeJson<T extends Record<string, unknown>>(_messages: LlmMessage[], completion: LlmCompletionOptions): Promise<T> {
+        options.evolutionCalls?.push(completion.operation);
+        return { ranked: [1], sufficient: true } as unknown as T;
+      },
+      status() {
+        return { provider: "host", model: "evolution", configured: true, remote: true };
+      }
+    },
+    embedder: createCapturingEmbedder([]),
+    config: {
+      ...config,
+      ...(options.apiKey ? { jev: { apiKey: options.apiKey } } : {}),
+      algorithm: {
+        ...config.algorithm,
+        retrieval: {
+          ...config.algorithm.retrieval,
+          filterBackend: "jev",
+          llmFilterEnabled: options.llmFilterEnabled ?? true,
+          llmFilterMinCandidates: options.llmFilterMinCandidates ?? 1,
+          llmFilterMaxKeep: options.llmFilterMaxKeep ?? 8,
+          llmFilterFallbackMaxKeep: options.llmFilterFallbackMaxKeep ?? 6
+        }
+      }
+    }
+  });
+  return { service, db };
+}
+
+async function seedTwoFilterTraces(
+  service: ReturnType<typeof createTestMemoryService>,
+  db: MemoryDb,
+  userId: string
+) {
+  const session = service.openSession({ namespace: filterNamespace(userId) });
+  const first = service.completeTurn(`turn-${userId}-1`, {
+    sessionId: session.sessionId,
+    episodeId: `episode_${userId}_1`,
+    query: "Python pytest fixture failed",
+    answer: "Inspected pytest fixture setup."
+  });
+  const second = service.completeTurn(`turn-${userId}-2`, {
+    sessionId: session.sessionId,
+    episodeId: `episode_${userId}_2`,
+    query: "Python pytest import failed",
+    answer: "Checked Python import path."
+  });
+  makeTraceEligibleForL2(db, first.l1MemoryId);
+  makeTraceEligibleForL2(db, second.l1MemoryId);
+  await service.runWorkerOnce(20, { priorityCohortOnly: true });
+}
 
 const CURRENT_USER_INPUT_LABEL = "CURRENT USER INPUT:\n";
 
