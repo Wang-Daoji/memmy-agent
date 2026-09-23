@@ -1611,6 +1611,60 @@ describe("MemoryService / retrieval / query and filtering", () => {
     }
   });
 
+  it("sends one Jev request when a single candidate is filtered", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const posts: Array<{ body: { model: string; questions: Record<string, unknown> } }> = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async (input: { body: { model: string; questions: Record<string, unknown> } }) => {
+      posts.push({ body: input.body });
+      return Object.fromEntries(Object.keys(input.body.questions).map((key) => [
+        key,
+        { noul: 0.8, confidence: 0.4 }
+      ]));
+    }) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, { apiKey: "jev-key" });
+      const session = service.openSession({ namespace: filterNamespace("jev-single") });
+      service.completeTurn("turn-jev-single", {
+        sessionId: session.sessionId,
+        query: "Remember that pytest fixture setup failed",
+        answer: "Captured the pytest fixture failure context."
+      });
+      await service.runWorkerOnce(20);
+      const recall = await service.search({
+        namespace: filterNamespace("jev-single"),
+        query: "pytest fixture"
+      });
+      expect(posts).toHaveLength(1);
+      expect(posts[0]!.body.model).toBe("jev-1.13.0");
+      expect(Object.keys(posts[0]!.body.questions)).toHaveLength(1);
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
+      expect(recall.hits).toHaveLength(1);
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
+  it("caps a malformed Jev response without calling the LLM filter", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async () => ({ c1: { noul: 0.9 } })) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, { apiKey: "jev-key", llmFilterFallbackMaxKeep: 2 });
+      await seedTwoFilterTraces(service, db, "jev-malformed");
+      const recall = await service.search({
+        namespace: filterNamespace("jev-malformed"),
+        query: "python pytest failure"
+      });
+      expect(recall.status).toContain("llm_filter:llm_failed_fallback_cap");
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
   it("uses the mechanical cap when Jev is selected without a key", async () => {
     const calls: Array<{ options: { operation: string } }> = [];
     const posts: unknown[] = [];
