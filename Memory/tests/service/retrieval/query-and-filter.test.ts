@@ -445,6 +445,10 @@ describe("MemoryService / retrieval / query and filtering", () => {
     );
     expect(logOutput.candidates.every((candidate) => candidate.content?.endsWith(`Summary:\n${candidate.summary}`))).toBe(true);
     expect(logOutput.candidates.some((candidate) => candidate.content?.includes("Historical user statement"))).toBe(false);
+    const timeFilterStats = (JSON.parse(latestSearchLog!.outputJson) as {
+      stats: { llmFilter: { durationMs?: number } };
+    }).stats;
+    expect(timeFilterStats.llmFilter.durationMs).toBeUndefined();
     db.close();
   });
 
@@ -1117,6 +1121,11 @@ describe("MemoryService / retrieval / query and filtering", () => {
 
     expect(recall.hits).toHaveLength(1);
     expect(calls.filter((call) => call.options.operation === "retrieval.retrieval.filter.v5")).toHaveLength(1);
+    const searchLog = service.apiLogs({ tools: ["memory_search"], limit: 1 }).logs[0]!;
+    const filterStats = (JSON.parse(searchLog.outputJson) as {
+      stats: { llmFilter: { durationMs?: number } };
+    }).stats;
+    expect(typeof filterStats.llmFilter.durationMs).toBe("number");
     db.close();
   });
 

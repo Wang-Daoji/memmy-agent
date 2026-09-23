@@ -1965,6 +1965,10 @@ export class RetrievalService {
       : timeFilter
       ? { hits: retrieval.hits, status: ["time_filter:l1"] }
       : await this.filterRecallHits(queryVectorText, merged.hits);
+    // Only set when the filter step actually ran; the two shortcuts above never
+    // reach it. Pair it with the recorded status to tell a filter that returned
+    // early on too few candidates from one that ranked them.
+    const llmFilterMs = onboardingFirstReportHit || timeFilter ? undefined : Date.now() - rerankAt;
     const hits = onboardingFirstReportHit || timeFilter
       ? filteredHits.hits
       : mmrRecallHits(filteredHits.hits, retrievalLimit, tuning.mmrLambda);
@@ -2117,7 +2121,8 @@ export class RetrievalService {
           llmFilter: {
             outcome: filteredHits.status.length > 0 ? filteredHits.status.join(",") : "kept",
             kept: hits.length,
-            dropped: Math.max(0, merged.hits.length - hits.length)
+            dropped: Math.max(0, merged.hits.length - hits.length),
+            ...(llmFilterMs === undefined ? {} : { durationMs: llmFilterMs })
           },
           finalReturned: hits.length
         },
