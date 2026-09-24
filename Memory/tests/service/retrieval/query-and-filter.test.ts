@@ -1524,10 +1524,7 @@ describe("MemoryService / retrieval / query and filtering", () => {
     const original = jevFilterTransport.post;
     jevFilterTransport.post = (async (input: { url: string; body: { model: string; questions: Record<string, unknown> } }) => {
       posts.push({ url: input.url, body: input.body });
-      return Object.fromEntries(Object.keys(input.body.questions).map((key, index) => [
-        key,
-        { noul: index === 0 ? 0.9 : 0.5, confidence: 0.25 }
-      ]));
+      return jevNoulAnswers(input.body.questions, (index) => index === 0 ? 0.9 : 0.5);
     }) as typeof jevFilterTransport.post;
     try {
       const { service, db } = jevFilterService(calls, { apiKey: "jev-key", llmFilterMaxKeep: 8 });
@@ -1559,7 +1556,7 @@ describe("MemoryService / retrieval / query and filtering", () => {
     const calls: Array<{ options: { operation: string } }> = [];
     const original = jevFilterTransport.post;
     jevFilterTransport.post = (async (input: { body: { questions: Record<string, unknown> } }) => (
-      Object.fromEntries(Object.keys(input.body.questions).map((key) => [key, { noul: 0.5, confidence: 1 }]))
+      jevNoulAnswers(input.body.questions, () => 0.5)
     )) as typeof jevFilterTransport.post;
     try {
       const { service, db } = jevFilterService(calls, { apiKey: "jev-key" });
@@ -1617,10 +1614,7 @@ describe("MemoryService / retrieval / query and filtering", () => {
     const original = jevFilterTransport.post;
     jevFilterTransport.post = (async (input: { body: { model: string; questions: Record<string, unknown> } }) => {
       posts.push({ body: input.body });
-      return Object.fromEntries(Object.keys(input.body.questions).map((key) => [
-        key,
-        { noul: 0.8, confidence: 0.4 }
-      ]));
+      return jevNoulAnswers(input.body.questions, () => 0.8);
     }) as typeof jevFilterTransport.post;
     try {
       const { service, db } = jevFilterService(calls, { apiKey: "jev-key" });
@@ -1640,6 +1634,32 @@ describe("MemoryService / retrieval / query and filtering", () => {
       expect(Object.keys(posts[0]!.body.questions)).toHaveLength(1);
       expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
       expect(recall.hits).toHaveLength(1);
+      db.close();
+    } finally {
+      jevFilterTransport.post = original;
+    }
+  });
+
+  it("keeps a live Jev answers payload that has noul and no confidence", async () => {
+    const calls: Array<{ options: { operation: string } }> = [];
+    const original = jevFilterTransport.post;
+    jevFilterTransport.post = (async (input: { body: { questions: Record<string, unknown> } }) => ({
+      model: "jev-1.13.0",
+      answers: {
+        ...Object.fromEntries(Object.keys(input.body.questions).map((key) => [key, { type: "noul", noul: 0.29 }])),
+        c1: { type: "noul", noul: 0.91 }
+      }
+    })) as typeof jevFilterTransport.post;
+    try {
+      const { service, db } = jevFilterService(calls, { apiKey: "jev-key" });
+      await seedTwoFilterTraces(service, db, "jev-live");
+      const recall = await service.search({
+        namespace: filterNamespace("jev-live"),
+        query: "python pytest failure"
+      });
+      expect(recall.status).not.toContain("llm_filter:llm_failed_fallback_cap");
+      expect(recall.hits.length).toBeGreaterThan(0);
+      expect(calls.map((call) => call.options.operation)).not.toContain("retrieval.retrieval.filter.v5");
       db.close();
     } finally {
       jevFilterTransport.post = original;
@@ -1737,6 +1757,16 @@ describe("MemoryService / retrieval / query and filtering", () => {
     }
   });
 });
+
+function jevNoulAnswers(questions: Record<string, unknown>, noulAt: (index: number) => number) {
+  return {
+    model: "jev-1.13.0",
+    answers: Object.fromEntries(Object.keys(questions).map((key, index) => [
+      key,
+      { type: "noul", noul: noulAt(index) }
+    ]))
+  };
+}
 
 function filterNamespace(userId: string) {
   return { source: "codex", profileId: "jiang", userId };

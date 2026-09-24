@@ -128,7 +128,7 @@ Candidate 5 does not fit the user's task.`;
 
 export type JevFilterHitScore = {
   noul: number;
-  confidence: number;
+  confidence?: number;
 };
 
 export type JevFilterResult =
@@ -199,10 +199,10 @@ export async function filterHitsWithJev(
 }
 
 function parseJevFilterScores(response: unknown, count: number): JevFilterHitScore[] | undefined {
-  if (!isRecord(response)) return undefined;
+  if (!isRecord(response) || !isRecord(response.answers)) return undefined;
   const scores: JevFilterHitScore[] = [];
   for (let index = 0; index < count; index += 1) {
-    const score = jevFilterScore(response[`c${index + 1}`]);
+    const score = jevFilterScore(response.answers[`c${index + 1}`]);
     if (!score) return undefined;
     scores.push(score);
   }
@@ -212,9 +212,9 @@ function parseJevFilterScores(response: unknown, count: number): JevFilterHitSco
 function jevFilterScore(value: unknown): JevFilterHitScore | undefined {
   if (!isRecord(value)) return undefined;
   const noul = unitInterval(value.noul);
+  if (noul === undefined) return undefined;
   const confidence = unitInterval(value.confidence);
-  if (noul === undefined || confidence === undefined) return undefined;
-  return { noul, confidence };
+  return confidence === undefined ? { noul } : { noul, confidence };
 }
 
 function unitInterval(value: unknown): number | undefined {

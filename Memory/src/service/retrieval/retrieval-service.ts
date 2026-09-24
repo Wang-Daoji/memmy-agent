@@ -2492,7 +2492,7 @@ export class RetrievalService {
       scores: outcome.scores.map((score, index) => ({
         index,
         noul: score.noul,
-        confidence: score.confidence
+        ...(score.confidence === undefined ? {} : { confidence: score.confidence })
       }))
     });
     const ranked = outcome.scores
