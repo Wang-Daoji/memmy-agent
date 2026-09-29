@@ -1,4 +1,4 @@
-import { Brain, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   resolveThinkingEnabled,
@@ -70,7 +70,6 @@ export function AgentThinkingControl(props: AgentThinkingControlProps) {
           className={`thinking-toggle ${enabled ? "thinking-toggle--on" : ""}`}
           aria-label={t("home.thinking.toggle")}
         >
-          <Brain size={16} className="thinking-toggle__icon" />
           <span className="thinking-toggle__label">{t("home.thinking.label")}</span>
           <div className={`thinking-toggle__switch ${enabled ? "thinking-toggle__switch--on" : ""}`}>
             <div className="thinking-toggle__switch-thumb" />
