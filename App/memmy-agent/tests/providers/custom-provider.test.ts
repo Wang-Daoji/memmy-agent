@@ -3,6 +3,7 @@ import { Config } from "../../src/config/schema.js";
 import { AnthropicProvider } from "../../src/providers/anthropic-provider.js";
 import { BedrockProvider } from "../../src/providers/bedrock-provider.js";
 import { makeProvider } from "../../src/providers/factory.js";
+import { customModelUsesMaxCompletionTokens } from "../../src/providers/custom-provider.js";
 import { OpenAICompatProvider } from "../../src/providers/openai-compat-provider.js";
 import { findByName } from "../../src/providers/registry.js";
 
@@ -47,6 +48,23 @@ describe("custom provider", () => {
     expect(() => new Config({ providers: { custom: { endpoints: {
       chat: { apiBase: "https://example.test/v1", protocol: "response" },
     } } } })).toThrow();
+  });
+
+  it("uses max_completion_tokens for newer OpenAI model names", () => {
+    expect(customModelUsesMaxCompletionTokens("gpt-6-sol")).toBe(true);
+    expect(customModelUsesMaxCompletionTokens("gpt-5.4")).toBe(true);
+    expect(customModelUsesMaxCompletionTokens("deepseek-v4")).toBe(false);
+    expect(customModelUsesMaxCompletionTokens("qwen-max")).toBe(false);
+  });
+
+  it("sends max_completion_tokens only for matching custom chat models", () => {
+    const gpt = chatKwargs("gpt-6-sol");
+    const qwen = chatKwargs("qwen-max");
+
+    expect(gpt.max_completion_tokens).toBe(1024);
+    expect(gpt).not.toHaveProperty("max_tokens");
+    expect(qwen.max_tokens).toBe(1024);
+    expect(qwen).not.toHaveProperty("max_completion_tokens");
   });
 
   it("selects the client from the custom endpoint protocol", () => {
@@ -153,6 +171,19 @@ describe("custom provider", () => {
     expect(result.content).toContain("proxy/tunnel");
   });
 });
+
+function chatKwargs(model: string): Record<string, unknown> {
+  const provider = new OpenAICompatProvider("test-key", "https://example.com/v1", model, findByName("custom"));
+  return provider.buildKwargs({
+    messages: [{ role: "user", content: "hi" }],
+    tools: null,
+    model,
+    maxTokens: 1024,
+    temperature: 0.7,
+    reasoningEffort: null,
+    toolChoice: null,
+  });
+}
 
 function customPresetConfig(protocol: string, model: string): Config {
   return new Config({

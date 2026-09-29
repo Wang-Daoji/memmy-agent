@@ -15,6 +15,7 @@ import {
   convertTools,
   parseResponseOutput,
 } from "./openai-responses/index.js";
+import { customModelUsesMaxCompletionTokens } from "./custom-provider.js";
 import { memmyAccountNoneThinkingStyle } from "./memmy-account.js";
 import { getModelInputModalities } from "./model-input-capabilities.js";
 import { OPENROUTER_ATTRIBUTION_HEADERS } from "./openrouter-attribution.js";
@@ -608,7 +609,9 @@ export class OpenAICompatProvider extends LLMProvider {
 
     if (OpenAICompatProvider.supportsTemperature(modelName, reasoningEffort))
       kwargs.temperature = temperature;
-    if (this.spec?.supportsMaxCompletionTokens) kwargs.max_completion_tokens = maxTokens;
+    const useMaxCompletionTokens = Boolean(this.spec?.supportsMaxCompletionTokens)
+      || (specName(this.spec) === "custom" && customModelUsesMaxCompletionTokens(modelName));
+    if (useMaxCompletionTokens) kwargs.max_completion_tokens = maxTokens;
     else kwargs.max_tokens = maxTokens;
 
     for (const [pattern, overrides] of this.spec?.modelOverrides ?? []) {
