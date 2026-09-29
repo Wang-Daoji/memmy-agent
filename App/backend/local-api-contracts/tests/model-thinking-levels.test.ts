@@ -33,4 +33,40 @@ describe("model thinking levels", () => {
     const alwaysOn = getModelThinkingConfig("claude-fable-5")!;
     expect(resolveThinkingEnabled(alwaysOn, false)).toBe(true);
   });
+
+  it("matches vendor docs for models added on 2026-09-29", () => {
+    expect(getModelThinkingConfig("gpt-6-sol")).toEqual({
+      switchable: true,
+      defaultEnabled: true,
+      levels: ["low", "medium", "high", "xhigh", "max"],
+      defaultLevel: "medium"
+    });
+    expect(getModelThinkingConfig("gpt-6-luna")).toEqual(getModelThinkingConfig("gpt-6-sol"));
+    expect(getModelThinkingConfig("gpt-6-astra")).toEqual({
+      switchable: false,
+      defaultEnabled: true,
+      levels: ["low", "medium", "high", "xhigh", "max"],
+      defaultLevel: "medium"
+    });
+    expect(resolveThinkingEnabled(getModelThinkingConfig("gpt-6-astra")!, false)).toBe(true);
+
+    expect(getModelThinkingConfig("claude-opus-5-5")).toEqual(getModelThinkingConfig("gpt-6-astra"));
+    expect(getModelThinkingConfig("anthropic.claude-opus-5-5")).toEqual(getModelThinkingConfig("claude-opus-5-5"));
+
+    expect(getModelThinkingConfig("gemini-3.8-flash")).toEqual({
+      switchable: false,
+      defaultEnabled: true,
+      levels: ["low", "medium", "high"],
+      defaultLevel: "medium"
+    });
+
+    const deepseek = {
+      switchable: true,
+      defaultEnabled: true,
+      levels: ["low", "high", "max"],
+      defaultLevel: "high"
+    };
+    expect(getModelThinkingConfig("deepseek-flash")).toEqual(deepseek);
+    expect(getModelThinkingConfig("deepseek-v4.1-flash")).toEqual(deepseek);
+  });
 });

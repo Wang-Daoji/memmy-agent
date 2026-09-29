@@ -1,5 +1,5 @@
 /**
- * 模型思考强度配置表。Reviewed: 2026-09-10
+ * 模型思考强度配置表。Reviewed: 2026-09-29
  *
  * 三个字段决定前端渲染与新 session 默认状态：
  * - switchable: true  → 渲染思考开关（用户可关闭思考）
@@ -30,7 +30,7 @@ export const ModelThinkingConfigSchema = z.object({
 });
 export type ModelThinkingConfigDto = z.infer<typeof ModelThinkingConfigSchema>;
 
-export const MODEL_THINKING_REVIEWED_AT = "2026-09-10";
+export const MODEL_THINKING_REVIEWED_AT = "2026-09-29";
 
 const ALWAYS_ON_FIVE: ModelThinkingConfig = {
   switchable: false,
@@ -44,6 +44,27 @@ const SWITCHABLE_FIVE: ModelThinkingConfig = {
   defaultEnabled: true,
   levels: ["low", "medium", "high", "xhigh", "max"],
   defaultLevel: "high"
+};
+
+/** GPT-6 Sol / Luna: `none` turns reasoning off; omitted effort is `medium`. */
+const SWITCHABLE_FIVE_MEDIUM: ModelThinkingConfig = {
+  switchable: true,
+  defaultEnabled: true,
+  levels: ["low", "medium", "high", "xhigh", "max"],
+  defaultLevel: "medium"
+};
+
+/**
+ * Thinking cannot be disabled. Five effort levels, default `medium`.
+ * GPT-6 Astra rejects `none`. Claude Opus 5.5 documents `medium` as its API default.
+ * OpenAI's reasoning guide does not publish a separate omit-effort default for Astra;
+ * `medium` is the default it documents for the other GPT-6 models and for most workloads.
+ */
+const ALWAYS_ON_FIVE_MEDIUM: ModelThinkingConfig = {
+  switchable: false,
+  defaultEnabled: true,
+  levels: ["low", "medium", "high", "xhigh", "max"],
+  defaultLevel: "medium"
 };
 
 const SWITCHABLE_FOUR: ModelThinkingConfig = {
@@ -87,6 +108,7 @@ export const MODEL_THINKING_CONFIGS: Readonly<Record<string, ModelThinkingConfig
   "claude-mythos-5-1": ALWAYS_ON_FIVE,
   "claude-mythos-5": ALWAYS_ON_FIVE,
   "claude-mythos-preview": ALWAYS_ON_FIVE,
+  "claude-opus-5-5": ALWAYS_ON_FIVE_MEDIUM,
   "claude-opus-5": SWITCHABLE_FIVE,
   "claude-sonnet-5": SWITCHABLE_FIVE,
   "claude-opus-4-8": SWITCHABLE_FIVE,
@@ -101,13 +123,17 @@ export const MODEL_THINKING_CONFIGS: Readonly<Record<string, ModelThinkingConfig
   },
   "claude-haiku-4-5": TOGGLE_ONLY,
   "claude-haiku-4-5-20251001": TOGGLE_ONLY,
+  "anthropic.claude-opus-5-5": ALWAYS_ON_FIVE_MEDIUM,
   "anthropic.claude-opus-5": SWITCHABLE_FIVE,
   "anthropic.claude-sonnet-5": SWITCHABLE_FIVE,
   "anthropic.claude-opus-4-8": SWITCHABLE_FIVE,
   "anthropic.claude-opus-4-7": SWITCHABLE_FIVE,
   "anthropic.claude-haiku-4-5": TOGGLE_ONLY,
 
-  // OpenAI. Reviewed 2026-09-10.
+  // OpenAI. GPT-6 reviewed 2026-09-29; GPT-5.6 and earlier reviewed 2026-09-10.
+  "gpt-6-astra": ALWAYS_ON_FIVE_MEDIUM,
+  "gpt-6-sol": SWITCHABLE_FIVE_MEDIUM,
+  "gpt-6-luna": SWITCHABLE_FIVE_MEDIUM,
   "gpt-5.6": SWITCHABLE_FIVE,
   "gpt-5.6-sol": SWITCHABLE_FIVE,
   "gpt-5.6-terra": SWITCHABLE_FIVE,
@@ -125,11 +151,19 @@ export const MODEL_THINKING_CONFIGS: Readonly<Record<string, ModelThinkingConfig
   "gpt-5.1": SWITCHABLE_THREE,
   "gpt-5.1-codex": SWITCHABLE_THREE,
 
-  // Gemini. Reviewed 2026-09-10.
+  // Gemini. 3.8 Flash reviewed 2026-09-29; 2.5 reviewed 2026-09-10.
+  "gemini-3.8-flash": {
+    switchable: false,
+    defaultEnabled: true,
+    levels: ["low", "medium", "high"],
+    defaultLevel: "medium"
+  },
   "gemini-2.5-flash": TOGGLE_ONLY,
   "gemini-2.5-flash-lite": TOGGLE_ONLY,
 
-  // DeepSeek. Reviewed 2026-09-10.
+  // DeepSeek. V4.1 Flash reviewed 2026-09-29; earlier V4 ids reviewed 2026-09-10.
+  "deepseek-flash": SWITCHABLE_LOW_HIGH_MAX,
+  "deepseek-v4.1-flash": SWITCHABLE_LOW_HIGH_MAX,
   "deepseek-v4-pro": SWITCHABLE_LOW_HIGH_MAX,
   "deepseek-v4-flash": SWITCHABLE_LOW_HIGH_MAX,
   "deepseek-v4-flash-0731": SWITCHABLE_LOW_HIGH_MAX,
