@@ -1,6 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import YAML from "yaml";
 import { resolveAssignedModel, type RuntimeModelCatalog } from "../src/contracts/index.js";
-import type { LlmConfig } from "../src/config/index.js";
+import { loadMemmyConfig, type LlmConfig } from "../src/config/index.js";
 import { createLlmClient } from "../src/model/llm.js";
 import type { LlmMessage } from "../src/model/types.js";
 
@@ -79,6 +83,51 @@ describe("memory protocol adapters", () => {
       messages: [{ role: "user", content: [{ text: "New evidence." }] }],
       inferenceConfig: { maxTokens: 700 }
     });
+  });
+
+  it("runs a custom Anthropic Messages preset through the Anthropic memory runtime", () => {
+    const root = mkdtempSync(join(tmpdir(), "memmy-custom-anthropic-"));
+    const file = join(root, "config.yaml");
+    writeFileSync(file, YAML.stringify({
+      app: { userMode: "byok" },
+      providers: {
+        custom: {
+          endpoints: {
+            chat: {
+              apiBase: "https://api.anthropic.com/v1",
+              protocol: "anthropic-messages",
+              apiKey: "sk-anthropic"
+            }
+          }
+        }
+      },
+      modelPresets: {
+        "memory-model": {
+          provider: "custom",
+          endpoint: "chat",
+          model: "claude-sonnet",
+          source: "byok",
+          capabilities: ["agent", "memory_summary", "memory_evolution"]
+        }
+      },
+      modelAssignments: {
+        byok: {
+          agent: { candidates: ["memory-model"], default: "memory-model" }
+        }
+      },
+      memmyMemory: {
+        roleRouting: { summary: "follow", evolution: "follow" }
+      }
+    }), "utf8");
+
+    try {
+      const { config } = loadMemmyConfig(file);
+      expect(config.evolution.provider).toBe("anthropic");
+      expect(config.evolution.model).toBe("claude-sonnet");
+      expect(config.evolution.endpoint).toBe("https://api.anthropic.com/v1");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

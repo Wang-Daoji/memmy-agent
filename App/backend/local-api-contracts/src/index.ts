@@ -745,7 +745,8 @@ export const CatalogProviderIdSchema = z.enum([
     "stepfun",
     "xiaomi_mimo",
     "memmy_account",
-    "bedrock"
+    "bedrock",
+    "custom"
 ]);
 export type CatalogProviderId = z.infer<typeof CatalogProviderIdSchema>;
 

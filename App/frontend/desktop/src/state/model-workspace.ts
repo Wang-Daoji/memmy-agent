@@ -785,7 +785,7 @@ function normalizeProvider(provider: string): CatalogProviderId | null {
     openai_responses: "openai"
   };
   const candidate = aliases[normalized] ?? normalized;
-  return ["openai", "anthropic", "gemini", "deepseek", "zhipu", "dashscope", "moonshot", "minimax", "qianfan", "volcengine", "stepfun", "xiaomi_mimo", "memmy_account", "bedrock"].includes(candidate)
+  return ["openai", "anthropic", "gemini", "deepseek", "zhipu", "dashscope", "moonshot", "minimax", "qianfan", "volcengine", "stepfun", "xiaomi_mimo", "memmy_account", "bedrock", "custom"].includes(candidate)
     ? candidate as CatalogProviderId
     : null;
 }

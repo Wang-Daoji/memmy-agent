@@ -72,6 +72,12 @@ function mergedRecord(
   return { ...(defaults ?? {}), ...(overrides ?? {}) };
 }
 
+function backendForCustomProtocol(protocol: string | undefined): ProviderSpec["backend"] {
+  if (protocol === "anthropic-messages") return "anthropic";
+  if (protocol === "bedrock-converse") return "bedrock";
+  return "openai_compat";
+}
+
 function exactEndpoint(
   config: Config,
   providerConfig: ProviderConfig | null,
@@ -100,7 +106,9 @@ function makeProviderCore(
   const providerConfig = config.getProvider(model, { preset: resolved });
   const endpoint = exactEndpoint(config, providerConfig, resolved);
   const spec = providerName ? findByName(providerName) : null;
-  const backend = spec?.backend ?? "openai_compat";
+  const backend = providerName === "custom"
+    ? backendForCustomProtocol(endpoint?.protocol)
+    : spec?.backend ?? "openai_compat";
   const init = providerInit(config, providerConfig, spec, model, resolved);
 
   if (opts.validateCredentials !== false && backend === "azure_openai") {

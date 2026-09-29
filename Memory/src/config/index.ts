@@ -894,6 +894,8 @@ function memoryRuntimeProvider(
 ): LlmProviderName {
   if (protocol === "bedrock-converse") return "bedrock";
   if (protocol === "openai-responses") return "openai_responses";
+  if (protocol === "anthropic-messages") return "anthropic";
+  if (protocol === "gemini-generate-content") return "gemini";
   return memoryLlmProvider(provider);
 }
 

@@ -111,11 +111,11 @@ describe("多 BYOK endpoint 入口", () => {
 });
 
 describe("Custom 与 OpenAI Responses 的 catalog provider 推导", () => {
-  it("Custom 按底层协议落到 openai/anthropic/bedrock，而不是 custom", () => {
-    expect(catalogProviderForEditor("custom", "openai-chat-completions")).toBe("openai");
-    expect(catalogProviderForEditor("custom", "openai-responses")).toBe("openai");
-    expect(catalogProviderForEditor("custom", "anthropic-messages")).toBe("anthropic");
-    expect(catalogProviderForEditor("custom", "bedrock-converse")).toBe("bedrock");
+  it("Custom 按供应商 custom 保存，协议留在端点上", () => {
+    expect(catalogProviderForEditor("custom", "openai-chat-completions")).toBe("custom");
+    expect(catalogProviderForEditor("custom", "openai-responses")).toBe("custom");
+    expect(catalogProviderForEditor("custom", "anthropic-messages")).toBe("custom");
+    expect(catalogProviderForEditor("custom", "bedrock-converse")).toBe("custom");
     expect(catalogProviderForEditor("openai_responses", null)).toBe("openai");
     expect(catalogProviderForEditor("moonshot", null)).toBe("moonshot");
   });

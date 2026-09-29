@@ -1092,7 +1092,7 @@ describe("canonical model workspace adapter", () => {
     const file = catalogFixture();
     const empty = await readModelConfigCatalog(file);
     const created = upsertModelConnection(createModelWorkspace(empty), "byok", {
-      provider: "bedrock",
+      provider: "custom",
       endpoint: "https://bedrock-runtime.us-west-2.amazonaws.com",
       protocol: "bedrock-converse",
       region: "us-west-2",
@@ -1119,7 +1119,7 @@ describe("canonical model workspace adapter", () => {
       write: (input) => writeModelConfigCatalog(file, input)
     });
     const reloaded = createModelWorkspace(saved);
-    const connection = reloaded.spaces.byok.connections.find((item) => item.provider === "bedrock")!;
+    const connection = reloaded.spaces.byok.connections.find((item) => item.provider === "custom")!;
     const entry = connection.modelEntries[0]!;
     const candidate = getTaskModelCandidates(reloaded, "byok").find((item) => item.model === "anthropic.claude-sonnet-5")!;
 
@@ -1135,7 +1135,7 @@ describe("canonical model workspace adapter", () => {
     expect(entry.inputModalities).toEqual(["text", "image"]);
     expect(isCustomModelEntry(reloaded, candidate)).toBe(true);
     expect(resolveThinkingConfigForModel(reloaded, candidate)).toEqual(entry.thinking);
-    expect(saved.providers.find((provider) => provider.provider === "bedrock")?.models[0]).toMatchObject({
+    expect(saved.providers.find((provider) => provider.provider === "custom")?.models[0]).toMatchObject({
       custom: true,
       inputModalities: ["text", "image"]
     });

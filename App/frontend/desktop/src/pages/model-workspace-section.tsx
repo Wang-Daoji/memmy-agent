@@ -1613,12 +1613,8 @@ export function protocolFromConnection(provider: string): Protocol {
   return "openai";
 }
 
-export function catalogProviderForEditor(provider: Protocol, customProtocol: CustomProtocol | null): string {
-  if (provider === "custom") {
-    if (customProtocol === "anthropic-messages") return "anthropic";
-    if (customProtocol === "bedrock-converse") return "bedrock";
-    return "openai";
-  }
+export function catalogProviderForEditor(provider: Protocol, _customProtocol: CustomProtocol | null): string {
+  if (provider === "custom") return "custom";
   if (provider === "openai_responses") return "openai";
   return fromProtocol(provider) === "kimi" ? "moonshot" : fromProtocol(provider);
 }

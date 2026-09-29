@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Config } from "../../src/config/schema.js";
+import { AnthropicProvider } from "../../src/providers/anthropic-provider.js";
+import { BedrockProvider } from "../../src/providers/bedrock-provider.js";
 import { makeProvider } from "../../src/providers/factory.js";
 import { OpenAICompatProvider } from "../../src/providers/openai-compat-provider.js";
 import { findByName } from "../../src/providers/registry.js";
@@ -45,6 +47,17 @@ describe("custom provider", () => {
     expect(() => new Config({ providers: { custom: { endpoints: {
       chat: { apiBase: "https://example.test/v1", protocol: "response" },
     } } } })).toThrow();
+  });
+
+  it("selects the client from the custom endpoint protocol", () => {
+    const responses = makeProvider(customPresetConfig("openai-responses", "gpt-4o-mini")) as OpenAICompatProvider;
+    const anthropic = makeProvider(customPresetConfig("anthropic-messages", "claude-sonnet"));
+    const bedrock = makeProvider(customPresetConfig("bedrock-converse", "anthropic.claude-sonnet"));
+
+    expect(responses).toBeInstanceOf(OpenAICompatProvider);
+    expect(responses.apiType).toBe("responses");
+    expect(anthropic).toBeInstanceOf(AnthropicProvider);
+    expect(bedrock).toBeInstanceOf(BedrockProvider);
   });
 
   it("parses empty choices as an error response", () => {
@@ -140,3 +153,32 @@ describe("custom provider", () => {
     expect(result.content).toContain("proxy/tunnel");
   });
 });
+
+function customPresetConfig(protocol: string, model: string): Config {
+  return new Config({
+    agents: { defaults: { provider: "custom", model, modelPreset: "chosen" } },
+    providers: {
+      custom: {
+        apiKey: "test-key",
+        endpoints: {
+          chat: {
+            apiBase: protocol === "bedrock-converse"
+              ? "https://bedrock-runtime.us-west-2.amazonaws.com"
+              : "https://example.com/v1",
+            protocol,
+            ...(protocol === "bedrock-converse" ? { region: "us-west-2" } : {})
+          }
+        }
+      }
+    },
+    modelPresets: {
+      chosen: {
+        provider: "custom",
+        endpoint: "chat",
+        model,
+        source: "byok",
+        capabilities: ["agent"]
+      }
+    }
+  });
+}
