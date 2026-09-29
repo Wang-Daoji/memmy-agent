@@ -516,13 +516,43 @@ describe("model config catalog", () => {
     wrongProtocol.providers[0]!.models[0]!.capabilities = ["embedding"];
     await expect(writeModelConfigCatalog(file, wrongProtocol)).rejects.toThrow(/does not support capability embedding/);
 
-    const unsupportedMemoryResponses = openAiInput(revision);
-    unsupportedMemoryResponses.providers[0]!.endpoints[0]!.protocol = "openai-responses";
-    unsupportedMemoryResponses.providers[0]!.models[0]!.capabilities = ["memory_summary"];
-    await expect(writeModelConfigCatalog(file, unsupportedMemoryResponses))
-      .rejects.toThrow(/does not support capability memory_summary/);
+    const responsesMemory = openAiInput(revision);
+    responsesMemory.providers[0]!.endpoints[0]!.protocol = "openai-responses";
+    responsesMemory.providers[0]!.models[0]!.capabilities = ["agent", "memory_summary", "memory_evolution"];
+    const savedResponses = await writeModelConfigCatalog(file, responsesMemory);
+    const responsesPresetId = savedResponses.providers[0]!.models[0]!.presetId!;
+    const assignedResponses = openAiInput(savedResponses.configRevision, responsesPresetId);
+    assignedResponses.providers[0]!.endpoints[0]!.protocol = "openai-responses";
+    assignedResponses.providers[0]!.models[0]!.capabilities = ["agent", "memory_summary", "memory_evolution"];
+    assignedResponses.modelAssignments.byok.memoryEvolution = responsesPresetId;
+    await writeModelConfigCatalog(file, assignedResponses);
+    expect((YAML.parse(readFileSync(file, "utf8")) as any).memmyMemory.evolution.provider).toBe("openai_responses");
 
-    const duplicateModel = openAiInput(revision);
+    const bedrockMemory = openAiInput((await readModelConfigCatalog(file)).configRevision);
+    bedrockMemory.providers = [{
+      provider: "bedrock",
+      endpoints: [{
+        endpointId: "chat",
+        apiBase: "https://bedrock-runtime.us-west-2.amazonaws.com",
+        protocol: "bedrock-converse",
+        region: "us-west-2"
+      }],
+      models: [{
+        endpointId: "chat",
+        model: "anthropic.claude-sonnet-5",
+        source: "byok",
+        capabilities: ["agent", "memory_summary", "memory_evolution"]
+      }]
+    }];
+    const savedBedrock = await writeModelConfigCatalog(file, bedrockMemory);
+    const bedrockPresetId = savedBedrock.providers[0]!.models[0]!.presetId!;
+    bedrockMemory.configRevision = savedBedrock.configRevision;
+    bedrockMemory.providers[0]!.models[0]!.presetId = bedrockPresetId;
+    bedrockMemory.modelAssignments.byok.memorySummary = bedrockPresetId;
+    await writeModelConfigCatalog(file, bedrockMemory);
+    expect((YAML.parse(readFileSync(file, "utf8")) as any).memmyMemory.summary.provider).toBe("bedrock");
+
+    const duplicateModel = openAiInput((await readModelConfigCatalog(file)).configRevision);
     duplicateModel.providers[0]!.models.push({
       endpointId: "chat",
       model: "gpt-5",

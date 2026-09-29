@@ -28,8 +28,8 @@ type ConfigRecord = Record<string, unknown>;
 
 const CAPABILITY_PROTOCOLS: Readonly<Record<ModelCapability, ReadonlySet<ModelEndpointProtocol>>> = {
   agent: new Set(["openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
-  memory_summary: new Set(["openai-chat-completions", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
-  memory_evolution: new Set(["openai-chat-completions", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
+  memory_summary: new Set(["openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
+  memory_evolution: new Set(["openai-chat-completions", "openai-responses", "anthropic-messages", "gemini-generate-content", "memmy-account", "bedrock-converse"]),
   embedding: new Set(["openai-embeddings", "memmy-account"]),
   asr: new Set(["dashscope-input-audio-chat", "memmy-account"]),
   image_generation: new Set(["openai-images", "dashscope-multimodal-generation", "memmy-account"])
@@ -309,7 +309,7 @@ function memoryConnection(config: ConfigRecord, presetId: string): ConfigRecord 
   const extraHeaders = { ...record(provider.extraHeaders), ...record(endpoint.extraHeaders) };
   const extraBody = { ...record(provider.extraBody), ...record(endpoint.extraBody) };
   return {
-    provider: memoryProvider(providerId),
+    provider: memoryProvider(providerId, stringValue(endpoint.protocol)),
     sourceProvider: providerId,
     endpoint: apiBase,
     model,
@@ -319,7 +319,9 @@ function memoryConnection(config: ConfigRecord, presetId: string): ConfigRecord 
   };
 }
 
-function memoryProvider(providerId: string): string {
+function memoryProvider(providerId: string, protocol: string | undefined): string {
+  if (protocol === "bedrock-converse") return "bedrock";
+  if (protocol === "openai-responses") return "openai_responses";
   if (providerId === "anthropic") return "anthropic";
   if (providerId === "gemini") return "gemini";
   return "openai_compatible";

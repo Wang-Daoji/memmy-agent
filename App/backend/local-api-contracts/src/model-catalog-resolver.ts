@@ -348,6 +348,7 @@ function protocolSupportsCapability(
     }
     if (capability === "memory_summary" || capability === "memory_evolution") {
         return protocol === "openai-chat-completions"
+            || protocol === "openai-responses"
             || protocol === "anthropic-messages"
             || protocol === "gemini-generate-content"
             || protocol === "bedrock-converse";
