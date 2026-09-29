@@ -731,6 +731,13 @@ export const ModelProviderSchema = z.enum([
 ]);
 export type ModelProvider = z.infer<typeof ModelProviderSchema>;
 
+/** Connection tests accept the catalog provider custom. Role model config stays on ModelProviderSchema. */
+export const ModelConfigTestProviderSchema = z.union([
+    ModelProviderSchema,
+    z.literal("custom")
+]);
+export type ModelConfigTestProvider = z.infer<typeof ModelConfigTestProviderSchema>;
+
 export const CatalogProviderIdSchema = z.enum([
     "openai",
     "anthropic",
@@ -977,7 +984,7 @@ export type ModelConfigInput = z.infer<typeof ModelConfigInputSchema>;
 
 /** Definition for model config test input. */
 export const ModelConfigTestInputSchema = z.object({
-    provider: ModelProviderSchema,
+    provider: ModelConfigTestProviderSchema,
     endpointId: z.string().trim().min(1),
     protocol: ModelEndpointProtocolSchema,
     apiBase: z.string().url(),
