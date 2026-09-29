@@ -1008,6 +1008,10 @@ body.memmy-window-fullscreen {
   font-size: 13px;
 }
 
+.custom-thinking-config__checkbox {
+  cursor: pointer;
+}
+
 .custom-thinking-levels {
   display: grid;
   gap: 6px;

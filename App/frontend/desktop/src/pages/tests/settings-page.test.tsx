@@ -204,6 +204,7 @@ describe("自定义模型能力选择", () => {
 
   it("模型能力沿用标准 Select 四选一，不再拆分文本用途", () => {
     const source = readFileSync(modelWorkspaceSourcePath, "utf8");
+    const styles = readFileSync(fileURLToPath(new URL("../../styles.css", import.meta.url)), "utf8");
 
     expect(source).toContain('const MODEL_KIND_OPTIONS = ["text", "embedding", "asr", "image"] as const;');
     expect(source).toContain("value={kind}");
@@ -214,6 +215,13 @@ describe("自定义模型能力选择", () => {
     expect(source).toContain("normalizeEditorCapabilities(entry.capabilities.map(fromCatalogCapability))");
     expect(source).toContain("checked={editor.customThinkingEnabled}");
     expect(source).toContain("checked={editor.customImageInput}");
+    expect(source).toContain('t("settings.modelWorkspace.customThinkingEnabledHint")');
+    expect(source).toContain('t("settings.modelWorkspace.customThinkingSwitchableHint")');
+    expect(source).toContain('t("settings.modelWorkspace.customThinkingDefaultEnabledHint")');
+    expect(source).toContain('t("settings.modelWorkspace.customImageInputHint")');
+    expect(source).toContain('className="custom-thinking-config__checkbox"');
+    expect(styles).toContain(".custom-thinking-config__checkbox");
+    expect(styles).toContain("cursor: pointer");
     expect(source).not.toContain('t("settings.modelWorkspace.textRoles")');
     expect(source).not.toContain('t("settings.modelWorkspace.capability.agent")');
   });

@@ -1173,33 +1173,27 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
                 />
               )}
               <div className="custom-thinking-config">
-                <label className="custom-thinking-config__label">
-                  <input
-                    type="checkbox"
-                    checked={editor.customThinkingEnabled}
-                    onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingEnabled: event.target.checked } : null)}
-                  />
-                  {t("settings.modelWorkspace.customThinkingEnabled")}
-                </label>
+                <CustomCapabilityOption
+                  checked={editor.customThinkingEnabled}
+                  label={t("settings.modelWorkspace.customThinkingEnabled")}
+                  hint={t("settings.modelWorkspace.customThinkingEnabledHint")}
+                  onChange={(customThinkingEnabled) => setEditor((prev) => prev ? { ...prev, customThinkingEnabled } : null)}
+                />
                 {editor.customThinkingEnabled && (
                   <>
-                    <label className="custom-thinking-config__label">
-                      <input
-                        type="checkbox"
-                        checked={editor.customThinkingSwitchable}
-                        onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingSwitchable: event.target.checked } : null)}
-                      />
-                      {t("settings.modelWorkspace.customThinkingSwitchable")}
-                    </label>
+                    <CustomCapabilityOption
+                      checked={editor.customThinkingSwitchable}
+                      label={t("settings.modelWorkspace.customThinkingSwitchable")}
+                      hint={t("settings.modelWorkspace.customThinkingSwitchableHint")}
+                      onChange={(customThinkingSwitchable) => setEditor((prev) => prev ? { ...prev, customThinkingSwitchable } : null)}
+                    />
                     {editor.customThinkingSwitchable && (
-                      <label className="custom-thinking-config__label">
-                        <input
-                          type="checkbox"
-                          checked={editor.customThinkingDefaultEnabled}
-                          onChange={(event) => setEditor((prev) => prev ? { ...prev, customThinkingDefaultEnabled: event.target.checked } : null)}
-                        />
-                        {t("settings.modelWorkspace.customThinkingDefaultEnabled")}
-                      </label>
+                      <CustomCapabilityOption
+                        checked={editor.customThinkingDefaultEnabled}
+                        label={t("settings.modelWorkspace.customThinkingDefaultEnabled")}
+                        hint={t("settings.modelWorkspace.customThinkingDefaultEnabledHint")}
+                        onChange={(customThinkingDefaultEnabled) => setEditor((prev) => prev ? { ...prev, customThinkingDefaultEnabled } : null)}
+                      />
                     )}
                     <div className="custom-thinking-levels">
                       <label className="custom-thinking-levels__label">
@@ -1218,14 +1212,12 @@ export function ModelWorkspaceSection(props: ModelWorkspaceSectionProps) {
                     </div>
                   </>
                 )}
-                <label className="custom-thinking-config__label">
-                  <input
-                    type="checkbox"
-                    checked={editor.customImageInput}
-                    onChange={(event) => setEditor((prev) => prev ? { ...prev, customImageInput: event.target.checked } : null)}
-                  />
-                  {t("settings.modelWorkspace.customImageInput")}
-                </label>
+                <CustomCapabilityOption
+                  checked={editor.customImageInput}
+                  label={t("settings.modelWorkspace.customImageInput")}
+                  hint={t("settings.modelWorkspace.customImageInputHint")}
+                  onChange={(customImageInput) => setEditor((prev) => prev ? { ...prev, customImageInput } : null)}
+                />
               </div>
             </>
           )}
@@ -1776,4 +1768,25 @@ function modelWorkspaceErrorText(
 async function simulateConnectionTest(): Promise<{ ok: boolean }> {
   await new Promise((resolve) => window.setTimeout(resolve, 450));
   return { ok: true };
+}
+
+function CustomCapabilityOption(props: {
+  checked: boolean;
+  label: string;
+  hint: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="custom-thinking-config__label">
+      <input
+        type="checkbox"
+        className="custom-thinking-config__checkbox"
+        checked={props.checked}
+        onChange={(event) => props.onChange(event.target.checked)}
+      />
+      <Tooltip content={props.hint} variant="description">
+        <span>{props.label}</span>
+      </Tooltip>
+    </label>
+  );
 }
