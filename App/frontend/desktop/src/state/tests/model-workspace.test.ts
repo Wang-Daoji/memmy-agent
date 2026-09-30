@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BUILTIN_LOCAL_EMBEDDING_ASSIGNMENT_ID,
+  getModelThinkingConfig,
   type ModelConfigInput,
-  type ModelConfigView
+  type ModelConfigView,
+  type ModelEndpointProtocol
 } from "@memmy/local-api-contracts";
 import YAML from "yaml";
 import { afterEach, describe, expect, it } from "vitest";
@@ -1140,4 +1142,29 @@ describe("canonical model workspace adapter", () => {
       inputModalities: ["text", "image"]
     });
   });
+
+  it("OpenAI Chat Completions 的 gpt-6 不提供目录思考，Responses 仍提供", () => {
+    const chat = openaiThinkingWorkspace("openai-chat-completions");
+    const responses = openaiThinkingWorkspace("openai-responses");
+    const chatCandidate = getTaskModelCandidates(chat, "byok").find((item) => item.model === "gpt-6-sol")!;
+    const responsesCandidate = getTaskModelCandidates(responses, "byok").find((item) => item.model === "gpt-6-sol")!;
+
+    expect(resolveThinkingConfigForModel(chat, chatCandidate)).toBeNull();
+    expect(resolveThinkingConfigForModel(responses, responsesCandidate)).toEqual(getModelThinkingConfig("gpt-6-sol"));
+  });
 });
+
+function openaiThinkingWorkspace(protocol: ModelEndpointProtocol) {
+  return upsertModelConnection(createModelWorkspace(null), "byok", {
+    provider: "openai",
+    endpoint: "https://api.openai.com/v1",
+    protocol,
+    apiKey: "sk-test",
+    models: ["gpt-6-sol"],
+    modelEntries: [{
+      model: "gpt-6-sol",
+      capability: "chat",
+      capabilities: ["chat", "memorySummary", "memoryEvolution"]
+    }]
+  }).workspace;
+}

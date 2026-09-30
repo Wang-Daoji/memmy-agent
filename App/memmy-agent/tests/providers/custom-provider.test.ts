@@ -67,6 +67,15 @@ describe("custom provider", () => {
     expect(qwen).not.toHaveProperty("max_completion_tokens");
   });
 
+  it("keeps reasoning_effort when custom thinking is on", () => {
+    const kwargs = chatKwargs("gpt-6-sol", {
+      reasoningEffort: "medium",
+      tools: [{ type: "function", function: { name: "read_file" } }],
+    });
+
+    expect(kwargs.reasoning_effort).toBe("medium");
+  });
+
   it("selects the client from the custom endpoint protocol", () => {
     const responses = makeProvider(customPresetConfig("openai-responses", "gpt-4o-mini")) as OpenAICompatProvider;
     const anthropic = makeProvider(customPresetConfig("anthropic-messages", "claude-sonnet"));
@@ -172,15 +181,18 @@ describe("custom provider", () => {
   });
 });
 
-function chatKwargs(model: string): Record<string, unknown> {
+function chatKwargs(
+  model: string,
+  overrides: { reasoningEffort?: string | null; tools?: Record<string, unknown>[] | null } = {},
+): Record<string, unknown> {
   const provider = new OpenAICompatProvider("test-key", "https://example.com/v1", model, findByName("custom"));
   return provider.buildKwargs({
     messages: [{ role: "user", content: "hi" }],
-    tools: null,
+    tools: overrides.tools ?? null,
     model,
     maxTokens: 1024,
     temperature: 0.7,
-    reasoningEffort: null,
+    reasoningEffort: overrides.reasoningEffort ?? null,
     toolChoice: null,
   });
 }

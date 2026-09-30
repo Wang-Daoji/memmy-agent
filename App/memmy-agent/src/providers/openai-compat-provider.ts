@@ -621,7 +621,12 @@ export class OpenAICompatProvider extends LLMProvider {
       }
     }
 
-    if (wireEffort && semanticEffort !== "none") kwargs.reasoning_effort = wireEffort;
+    const omitReasoningEffortForTools = specName(this.spec) === "openai"
+      && Boolean(tools?.length)
+      && customModelUsesMaxCompletionTokens(modelName);
+    if (wireEffort && semanticEffort !== "none" && !omitReasoningEffortForTools) {
+      kwargs.reasoning_effort = wireEffort;
+    }
     if (reasoningEffort !== null) {
       const thinkingEnabled = semanticEffort !== "none" && semanticEffort !== "minimal";
       const styles = thinkingStylesFor(this.spec, modelName);

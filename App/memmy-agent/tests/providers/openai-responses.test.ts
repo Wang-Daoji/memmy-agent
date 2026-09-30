@@ -569,3 +569,46 @@ describe("OpenAI Responses consumeSdkStream", () => {
     expect(toolCalls[0].arguments).toEqual({ bad: null });
   });
 });
+
+describe("OpenAI chat completions reasoning effort", () => {
+  const tool = [{ type: "function", function: { name: "read_file" } }];
+
+  it("omits reasoning_effort when gpt-6-sol is called with tools", () => {
+    const kwargs = chatKwargs("gpt-6-sol", tool);
+
+    expect(kwargs).not.toHaveProperty("reasoning_effort");
+    expect(kwargs.tools).toEqual(tool);
+  });
+
+  it("keeps reasoning_effort when gpt-6-sol is called without tools", () => {
+    expect(chatKwargs("gpt-6-sol", null).reasoning_effort).toBe("medium");
+  });
+
+  it("keeps reasoning effort on the responses body", () => {
+    const provider = new OpenAICompatProvider("test-key", "https://api.openai.com/v1", "gpt-6-sol", findByName("openai"));
+    const body = provider.buildResponsesBody({
+      messages: [{ role: "user", content: "hi" }],
+      tools: tool,
+      model: "gpt-6-sol",
+      maxTokens: 1024,
+      temperature: 0.7,
+      reasoningEffort: "medium",
+      toolChoice: null,
+    });
+
+    expect(body.reasoning).toEqual({ effort: "medium" });
+  });
+});
+
+function chatKwargs(model: string, tools: Record<string, unknown>[] | null): Record<string, unknown> {
+  const provider = new OpenAICompatProvider("test-key", "https://api.openai.com/v1", model, findByName("openai"));
+  return provider.buildKwargs({
+    messages: [{ role: "user", content: "hi" }],
+    tools,
+    model,
+    maxTokens: 1024,
+    temperature: 0.7,
+    reasoningEffort: "medium",
+    toolChoice: null,
+  });
+}

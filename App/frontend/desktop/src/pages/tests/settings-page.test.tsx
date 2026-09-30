@@ -25,7 +25,7 @@ import {
   shouldSaveAccountNicknameOnKeyDown,
   writeLogLevel
 } from "../settings-page.js";
-import { formatMessage, zhCNMessages } from "../../i18n/messages.js";
+import { enUSMessages, formatMessage, zhCNMessages } from "../../i18n/messages.js";
 import {
   availableConnectionProtocols,
   catalogProviderForEditor,
@@ -224,6 +224,15 @@ describe("自定义模型能力选择", () => {
     expect(styles).toContain("cursor: pointer");
     expect(source).not.toContain('t("settings.modelWorkspace.textRoles")');
     expect(source).not.toContain('t("settings.modelWorkspace.capability.agent")');
+  });
+
+  it("支持思考的说明提醒 Chat Completions 的 gpt 模型关掉思考", () => {
+    expect(zhCNMessages["settings.modelWorkspace.customThinkingEnabledHint"]).toContain(
+      "使用 Chat Completions 并且使用 gpt 模型时，请关闭支持思考，否则可能导致错误。"
+    );
+    expect(enUSMessages["settings.modelWorkspace.customThinkingEnabledHint"]).toContain(
+      "When using Chat Completions with a GPT model, turn off Supports thinking, or the request may fail."
+    );
   });
 });
 

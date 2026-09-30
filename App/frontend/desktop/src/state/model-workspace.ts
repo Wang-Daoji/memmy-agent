@@ -974,12 +974,37 @@ export function customThinkingConfigFor(
   return modelEntryFor(workspace, candidate)?.thinking ?? null;
 }
 
+const CHAT_COMPLETIONS_THINKING_MARKERS = ["gpt-5", "gpt-6", "o1", "o3", "o4"] as const;
+
+function endpointProtocolFor(
+  workspace: ModelWorkspace,
+  candidate: ModelCandidate
+): ModelEndpointProtocol | undefined {
+  for (const space of Object.values(workspace.spaces)) {
+    const connection = space.connections.find((item) => item.id === candidate.connectionId);
+    if (connection) return connection.protocol;
+  }
+  return undefined;
+}
+
+function chatCompletionsHidesCatalogThinking(modelName: string): boolean {
+  const name = modelName.toLowerCase();
+  return CHAT_COMPLETIONS_THINKING_MARKERS.some((marker) => name.includes(marker));
+}
+
 export function resolveThinkingConfigForModel(
   workspace: ModelWorkspace,
   candidate: ModelCandidate | null | undefined
 ): ModelThinkingConfig | null {
   if (isCustomModelEntry(workspace, candidate)) {
     return customThinkingConfigFor(workspace, candidate);
+  }
+  if (
+    candidate
+    && endpointProtocolFor(workspace, candidate) === "openai-chat-completions"
+    && chatCompletionsHidesCatalogThinking(candidate.model)
+  ) {
+    return null;
   }
   return getModelThinkingConfig(candidate?.model);
 }
