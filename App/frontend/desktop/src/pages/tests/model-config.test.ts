@@ -550,7 +550,8 @@ describe("model config helpers", () => {
     expect(fromProtocol("custom")).toBe("custom");
     expect(zhCNMessages["apiKey.provider.openaiCompletions"]).toBe("OpenAI Completions");
     expect(zhCNMessages["apiKey.provider.openaiResponses"]).toBe("OpenAI Responses");
-    expect(zhCNMessages["apiKey.provider.custom"]).toBe("Custom");
+    expect(zhCNMessages["apiKey.provider.custom"]).toBe("自定义");
+    expect(enUSMessages["apiKey.provider.custom"]).toBe("Custom");
   });
 
   it("中英文字典键集合一致", () => {

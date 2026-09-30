@@ -230,8 +230,14 @@ describe("自定义模型能力选择", () => {
     expect(zhCNMessages["settings.modelWorkspace.customThinkingEnabledHint"]).toContain(
       "使用 Chat Completions 并且使用 gpt 模型时，请关闭支持思考，否则可能导致错误。"
     );
+    expect(zhCNMessages["settings.modelWorkspace.customThinkingEnabledHint"]).toContain(
+      "gpt 模型建议使用 Responses 接口获得最佳体验。"
+    );
     expect(enUSMessages["settings.modelWorkspace.customThinkingEnabledHint"]).toContain(
       "When using Chat Completions with a GPT model, turn off Supports thinking, or the request may fail."
+    );
+    expect(enUSMessages["settings.modelWorkspace.customThinkingEnabledHint"]).toContain(
+      "GPT models should use the Responses API for the best experience."
     );
   });
 });
