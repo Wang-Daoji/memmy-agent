@@ -1,6 +1,7 @@
 import memmyCoverLogoUrl from "../assets/brand/memmy-cover.png";
 import anthropicLogoUrl from "../assets/model-logos/anthropic.svg";
 import baiduLogoUrl from "../assets/model-logos/baidu.svg";
+import customLogoUrl from "../assets/model-logos/custom.svg";
 import deepseekLogoUrl from "../assets/model-logos/deepseek.svg";
 import doubaoLogoUrl from "../assets/model-logos/doubao.svg";
 import geminiLogoUrl from "../assets/model-logos/gemini.svg";
@@ -29,7 +30,7 @@ const PROTOCOL_LOGO_URLS: Record<Protocol, string> = {
   doubao: doubaoLogoUrl,
   stepfun: stepfunLogoUrl,
   xiaomi: xiaomiLogoUrl,
-  custom: openaiLogoUrl
+  custom: customLogoUrl
 };
 
 /** Resolve a logo URL for a protocol or free-form provider string. */

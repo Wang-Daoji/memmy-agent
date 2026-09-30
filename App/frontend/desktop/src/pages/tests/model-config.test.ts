@@ -558,6 +558,12 @@ describe("model config helpers", () => {
     expect(Object.keys(enUSMessages).sort()).toEqual(Object.keys(zhCNMessages).sort());
   });
 
+  it("自定义供应商使用独立的拼图图标", () => {
+    expect(modelProviderLogoUrl("custom")).toMatch(/^data:image\/svg\+xml/);
+    expect(modelProviderLogoUrl("custom")).not.toBe(modelProviderLogoUrl("openai"));
+    expect(modelProviderLogoUrl("openai_responses")).toBe(modelProviderLogoUrl("openai"));
+  });
+
   it("为阶跃星辰和小米 MiMo 解析出品牌 logo", () => {
     expect(modelProviderLogoUrl("stepfun")).toMatch(/^data:image\/svg\+xml/);
     expect(modelProviderLogoUrl("xiaomi")).toMatch(/^data:image\/svg\+xml/);
