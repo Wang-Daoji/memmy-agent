@@ -15,7 +15,10 @@ import {
   convertTools,
   parseResponseOutput,
 } from "./openai-responses/index.js";
-import { customModelUsesMaxCompletionTokens } from "./custom-provider.js";
+import {
+  chatCompletionsModelForcesNoneReasoning,
+  customModelUsesMaxCompletionTokens,
+} from "./custom-provider.js";
 import { memmyAccountNoneThinkingStyle } from "./memmy-account.js";
 import { getModelInputModalities } from "./model-input-capabilities.js";
 import { OPENROUTER_ATTRIBUTION_HEADERS } from "./openrouter-attribution.js";
@@ -621,9 +624,14 @@ export class OpenAICompatProvider extends LLMProvider {
       }
     }
 
-    const forceNoneReasoningEffort = specName(this.spec) === "openai"
+    const chatCompletionsGptWithTools = this.apiType === "chatCompletions"
       && Boolean(tools?.length)
-      && customModelUsesMaxCompletionTokens(modelName);
+      && chatCompletionsModelForcesNoneReasoning(modelName);
+    const providerName = specName(this.spec);
+    const thinkingOff = !wireEffort || semanticEffort === "none";
+    const forceNoneReasoningEffort = chatCompletionsGptWithTools && (
+      providerName === "openai" || (providerName === "custom" && thinkingOff)
+    );
     if (forceNoneReasoningEffort) kwargs.reasoning_effort = "none";
     else if (wireEffort && semanticEffort !== "none") kwargs.reasoning_effort = wireEffort;
     if (reasoningEffort !== null) {

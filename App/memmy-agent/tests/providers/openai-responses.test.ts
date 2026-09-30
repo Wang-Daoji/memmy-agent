@@ -610,6 +610,7 @@ function chatKwargs(
   reasoningEffort: string | null,
 ): Record<string, unknown> {
   const provider = new OpenAICompatProvider("test-key", "https://api.openai.com/v1", model, findByName("openai"));
+  provider.apiType = "chatCompletions";
   return provider.buildKwargs({
     messages: [{ role: "user", content: "hi" }],
     tools,

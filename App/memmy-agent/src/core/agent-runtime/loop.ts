@@ -707,7 +707,7 @@ export function reasoningEffortFromTurnMetadata(
   model: string | null | undefined,
 ): string | undefined {
   if (typeof metadata?.thinking_enabled !== "boolean") return undefined;
-  const config = getModelThinkingConfig(model);
+  const config = metadata.model_provider === "custom" ? null : getModelThinkingConfig(model);
   const enabled = config && !config.switchable ? true : metadata.thinking_enabled;
   if (!enabled) return "none";
   if (typeof metadata.thinking_level === "string" && metadata.thinking_level.trim()) {

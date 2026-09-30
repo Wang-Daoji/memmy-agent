@@ -1144,25 +1144,35 @@ describe("canonical model workspace adapter", () => {
   });
 
   it("OpenAI Chat Completions 的 gpt-6 不提供目录思考，Responses 仍提供", () => {
-    const chat = openaiThinkingWorkspace("openai-chat-completions");
-    const responses = openaiThinkingWorkspace("openai-responses");
+    const chat = openaiThinkingWorkspace("openai-chat-completions", "gpt-6-sol");
+    const responses = openaiThinkingWorkspace("openai-responses", "gpt-6-sol");
     const chatCandidate = getTaskModelCandidates(chat, "byok").find((item) => item.model === "gpt-6-sol")!;
     const responsesCandidate = getTaskModelCandidates(responses, "byok").find((item) => item.model === "gpt-6-sol")!;
 
     expect(resolveThinkingConfigForModel(chat, chatCandidate)).toBeNull();
     expect(resolveThinkingConfigForModel(responses, responsesCandidate)).toEqual(getModelThinkingConfig("gpt-6-sol"));
   });
+
+  it("OpenAI Chat Completions 的 gpt-4o 不提供目录思考，Responses 仍按目录", () => {
+    const chat = openaiThinkingWorkspace("openai-chat-completions", "gpt-4o");
+    const responses = openaiThinkingWorkspace("openai-responses", "gpt-4o");
+    const chatCandidate = getTaskModelCandidates(chat, "byok").find((item) => item.model === "gpt-4o")!;
+    const responsesCandidate = getTaskModelCandidates(responses, "byok").find((item) => item.model === "gpt-4o")!;
+
+    expect(resolveThinkingConfigForModel(chat, chatCandidate)).toBeNull();
+    expect(resolveThinkingConfigForModel(responses, responsesCandidate)).toEqual(getModelThinkingConfig("gpt-4o"));
+  });
 });
 
-function openaiThinkingWorkspace(protocol: ModelEndpointProtocol) {
+function openaiThinkingWorkspace(protocol: ModelEndpointProtocol, model: string) {
   return upsertModelConnection(createModelWorkspace(null), "byok", {
     provider: "openai",
     endpoint: "https://api.openai.com/v1",
     protocol,
     apiKey: "sk-test",
-    models: ["gpt-6-sol"],
+    models: [model],
     modelEntries: [{
-      model: "gpt-6-sol",
+      model,
       capability: "chat",
       capabilities: ["chat", "memorySummary", "memoryEvolution"]
     }]

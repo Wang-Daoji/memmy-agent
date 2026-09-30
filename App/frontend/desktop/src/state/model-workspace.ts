@@ -974,7 +974,7 @@ export function customThinkingConfigFor(
   return modelEntryFor(workspace, candidate)?.thinking ?? null;
 }
 
-const CHAT_COMPLETIONS_THINKING_MARKERS = ["gpt-5", "gpt-6", "o1", "o3", "o4"] as const;
+const CHAT_COMPLETIONS_O_SERIES_MARKERS = ["o1", "o3", "o4"] as const;
 
 function endpointProtocolFor(
   workspace: ModelWorkspace,
@@ -989,7 +989,8 @@ function endpointProtocolFor(
 
 function chatCompletionsHidesCatalogThinking(modelName: string): boolean {
   const name = modelName.toLowerCase();
-  return CHAT_COMPLETIONS_THINKING_MARKERS.some((marker) => name.includes(marker));
+  return name.includes("gpt-")
+    || CHAT_COMPLETIONS_O_SERIES_MARKERS.some((marker) => name.includes(marker));
 }
 
 export function resolveThinkingConfigForModel(

@@ -18,4 +18,12 @@ describe("reasoningEffortFromTurnMetadata", () => {
       thinking_level: "low",
     }, "claude-fable-5")).toBe("low");
   });
+
+  it("lets a custom model turn thinking off even when the catalog model is always on", () => {
+    expect(reasoningEffortFromTurnMetadata({
+      model_provider: "custom",
+      thinking_enabled: false,
+      thinking_level: "low",
+    }, "gpt-6-astra")).toBe("none");
+  });
 });
