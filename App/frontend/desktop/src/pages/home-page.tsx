@@ -1805,23 +1805,33 @@ export function HomePage() {
   /**
    * Sends one round of a live Agent conversation.
    */
-  async function sendMessage() {
+  async function sendMessage(options?: { skipEditRevert?: boolean }) {
     if (runExactLocalSlashCommand(input)) {
       return;
     }
     const currentChatId = state.agent.currentChatId;
-    if (editingTurnId) {
-      // Drop the old exchange first; the actual send happens in the effect that
-      // fires once `reverted` clears the in-flight marker.
-      requestAgentRevert({
-        chatId: currentChatId,
-        turnId: editingTurnId,
-        connection,
-        isSending: state.agent.isSending,
-        revertInFlightByChatId: state.agent.revertInFlightByChatId,
-        dispatch
-      });
-      return;
+    if (editingTurnId && !options?.skipEditRevert) {
+      const editTurnStillPresent = state.agent.messages.some(
+        (message) => message.turnId === editingTurnId
+      );
+      if (editTurnStillPresent) {
+        // Drop the old exchange first; the actual send happens in the effect below, which
+        // fires once the gateway clears the in-flight marker. `editingTurnId` has to stay
+        // set until then — that effect is what sends the rewrite, and it bails out when
+        // the id is already gone.
+        requestAgentRevert({
+          chatId: currentChatId,
+          turnId: editingTurnId,
+          connection,
+          isSending: state.agent.isSending,
+          revertInFlightByChatId: state.agent.revertInFlightByChatId,
+          dispatch
+        });
+        return;
+      }
+      // The turn is already out of the transcript, so there is nothing left to drop:
+      // leave edit mode and fall through to send the rewrite now.
+      setEditingTurnId(null);
     }
     if (resolvedConversationModel.unavailable) {
       dispatch(agentActions.operationFailed("chat", createAgentOperationError({
@@ -1919,7 +1929,10 @@ export function HomePage() {
     const reverted = !state.agent.messages.some((message) => message.turnId === editingTurnId);
     setEditingTurnId(null);
     if (reverted) {
-      void sendMessage();
+      // Skip the edit branch explicitly: `setEditingTurnId(null)` has not been applied to
+      // this render yet, so without this the call would re-enter the revert path against a
+      // turn the gateway has already dropped and the rewrite would never be sent.
+      void sendMessage({ skipEditRevert: true });
     }
     // sendMessage closes over the latest render; listing it would re-run on every keystroke.
   }, [editingTurnId, state.agent.currentChatId, state.agent.revertInFlightByChatId, state.agent.messages]);

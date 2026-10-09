@@ -191,6 +191,10 @@ export interface AgentState {
     chatId: string | null;
     presetId: string | null;
   }>;
+  // Turn ids that arrived before their optimistic bubble existed. `message_accepted` is
+  // emitted as soon as the gateway admits the message, which on a brand-new chat can land
+  // ahead of `new_chat`/`userMessageQueued`; the bubble then picks its turn id up here.
+  pendingAcceptedTurnIdByRequestId: Record<string, string>;
   chatViewVisible: boolean;
   currentChatId: string | null;
   currentSessionKey: string | null;
@@ -356,6 +360,7 @@ export const initialAgentState: AgentState = {
   committedModelSelectionByScope: {},
   pendingPresetByScope: {},
   pendingModelCommitByRequestId: {},
+  pendingAcceptedTurnIdByRequestId: {},
   chatViewVisible: false,
   currentChatId: null,
   currentSessionKey: null,
@@ -1012,14 +1017,23 @@ function queueOptimisticUserMessage(
     action.clientRequestId
     && existingMessages.some((message) => message.clientRequestId === action.clientRequestId)
   ) return nextState;
+  // The gateway may already have accepted this send before the bubble reached the store, in
+  // which case its turn id is waiting for us.
+  const pendingTurnId = action.clientRequestId
+    ? nextState.pendingAcceptedTurnIdByRequestId[action.clientRequestId]
+    : undefined;
   const message: AgentChatMessage = {
     id: nextMessageId(existingMessages, "user"),
     role: "user",
     content: action.content,
     createdAt: now,
+    ...(pendingTurnId ? { turnId: pendingTurnId } : {}),
     ...(action.clientRequestId ? { clientRequestId: action.clientRequestId } : {}),
     ...(action.media?.length ? { media: action.media } : {})
   };
+  const pendingAcceptedTurnIdByRequestId = action.clientRequestId && pendingTurnId
+    ? clearChatMapValue(nextState.pendingAcceptedTurnIdByRequestId, action.clientRequestId)
+    : nextState.pendingAcceptedTurnIdByRequestId;
   const messages = [...existingMessages, message];
   const messagesByChatId = { ...nextState.messagesByChatId, [action.chatId]: messages };
   const completedUnseenByChatId = clearChatMapValue(nextState.completedUnseenByChatId, action.chatId);
@@ -1030,6 +1044,7 @@ function queueOptimisticUserMessage(
   return deriveTasks({
     ...nextState,
     messagesByChatId,
+    pendingAcceptedTurnIdByRequestId,
     optimisticSendingByChatId: { ...nextState.optimisticSendingByChatId, [action.chatId]: true },
     optimisticTasksByChatId: maybeAddOptimisticTask(
       nextState,
@@ -1241,6 +1256,98 @@ function finishRecovery(state: AgentState, generation: number): AgentState {
     ...(clearTaskRequest ? { currentTaskStateRequest: null, isLoadingSessions: false } : {}),
     ...(clearChatRequest && !hasCurrentNormalHistoryRequest ? { isLoadingHistory: false } : {})
   };
+}
+
+// Bind the gateway's turn id onto the optimistic user bubble it belongs to. Matching is by
+// client_request_id because that is the only correlation the optimistic message carries.
+// Idempotent and non-destructive: a message that already has a turnId is left alone, so a
+// replayed `message_accepted` (or one that arrives after transcript hydration) is a no-op.
+function bindAcceptedTurnId(
+  state: AgentState,
+  chatId: string,
+  clientRequestId: string,
+  turnId: string | null
+): AgentState {
+  if (!turnId) return state;
+  const bucket = resolveOptimisticMessageBucket(state, chatId, clientRequestId);
+  if (!bucket) {
+    // A brand-new chat can accept the message before the page has queued its optimistic
+    // bubble, in which case there is nothing to bind to yet. Remember the turn id so the
+    // bubble picks it up when it is created.
+    return {
+      ...state,
+      pendingAcceptedTurnIdByRequestId: {
+        ...state.pendingAcceptedTurnIdByRequestId,
+        [clientRequestId]: turnId
+      }
+    };
+  }
+  const next = bucket.messages.slice();
+  const target = next[bucket.index];
+  if (!target || target.turnId) return state;
+  next[bucket.index] = { ...target, turnId };
+  return replaceChatMessages(bucket.staleChatIds ? rekeyMessages(state, bucket.staleChatIds) : state, chatId, next);
+}
+
+type OptimisticMessageBucket = {
+  index: number;
+  messages: AgentChatMessage[];
+  // Buckets the bubble was filed under before the gateway named the chat. The gateway's id
+  // is the one every later event carries, so the originals are dropped once adopted.
+  staleChatIds: string[] | null;
+};
+
+// The optimistic bubble is keyed by the chat id the page had at send time: a standalone
+// compose targets the pre-created chat, while the gateway answers `new_chat` with the id it
+// actually accepted into. When those differ the bubble sits in another bucket, or only in
+// the `messages` mirror, and binding used to bail out — leaving the message with no turnId so
+// the edit affordance never appeared until a reload re-hydrated the thread.
+function resolveOptimisticMessageBucket(
+  state: AgentState,
+  chatId: string,
+  clientRequestId: string
+): OptimisticMessageBucket | null {
+  const matches = (messages: AgentChatMessage[] | undefined) => {
+    if (!messages) return -1;
+    return messages.findIndex(
+      (message) => message.role === "user" && message.clientRequestId === clientRequestId
+    );
+  };
+
+  const accepted = state.messagesByChatId[chatId];
+  const acceptedIndex = matches(accepted);
+  if (accepted && acceptedIndex >= 0) {
+    return { index: acceptedIndex, messages: accepted, staleChatIds: null };
+  }
+
+  const staleChatIds = Object.keys(state.messagesByChatId).filter((key) => key !== chatId);
+  for (const staleChatId of staleChatIds) {
+    const messages = state.messagesByChatId[staleChatId];
+    const index = matches(messages);
+    if (messages && index >= 0) {
+      return { index, messages, staleChatIds };
+    }
+  }
+
+  // The mirror holds this chat's transcript when the bucket has not been written yet.
+  if (state.currentChatId === chatId) {
+    const index = matches(state.messages);
+    if (index >= 0) {
+      return { index, messages: state.messages, staleChatIds: staleChatIds.length ? staleChatIds : null };
+    }
+  }
+
+  return null;
+}
+
+// Adopt the pre-acceptance buckets into the gateway's chat id so the accepted turn and the
+// transcript it belongs to share one key from here on.
+function rekeyMessages(state: AgentState, staleChatIds: string[]): AgentState {
+  const messagesByChatId = { ...state.messagesByChatId };
+  for (const staleChatId of staleChatIds) {
+    delete messagesByChatId[staleChatId];
+  }
+  return { ...state, messagesByChatId };
 }
 
 function replaceChatMessages(state: AgentState, chatId: string, messages: AgentChatMessage[]): AgentState {
@@ -2803,24 +2910,28 @@ function reduceWsEvent(state: AgentState, event: MemmyAgentWsEvent): AgentState 
     case "message_accepted":
       if (!event.chat_id || !event.client_request_id) return state;
       {
-        const pending = state.pendingModelCommitByRequestId[event.client_request_id];
+        // The gateway mints the turn id at accept time, but the optimistic user bubble is
+        // created before it exists, so "edit this question" has nothing to target until the
+        // transcript is re-hydrated on the next load. Bind it here by client_request_id.
+        const accepted = bindAcceptedTurnId(state, event.chat_id, event.client_request_id, eventTurnId(event));
+        const pending = accepted.pendingModelCommitByRequestId[event.client_request_id];
         const selection = parseMemmyAgentModelSelection(event.model_selection);
         if (
           !pending
           || !selection
           || (pending.chatId !== null && pending.chatId !== event.chat_id)
           || (pending.presetId !== null && pending.presetId !== selection.presetId)
-        ) return state;
-        const pendingModelCommitByRequestId = { ...state.pendingModelCommitByRequestId };
+        ) return accepted;
+        const pendingModelCommitByRequestId = { ...accepted.pendingModelCommitByRequestId };
         delete pendingModelCommitByRequestId[event.client_request_id];
         return {
-          ...state,
+          ...accepted,
           committedModelSelectionByScope: {
-            ...state.committedModelSelectionByScope,
+            ...accepted.committedModelSelectionByScope,
             [event.chat_id]: selection
           },
           pendingPresetByScope: clearChatMapValue(
-            state.pendingPresetByScope,
+            accepted.pendingPresetByScope,
             pending.scopeKey
           ),
           pendingModelCommitByRequestId

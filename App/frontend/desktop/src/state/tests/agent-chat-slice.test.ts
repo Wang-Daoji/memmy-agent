@@ -4041,6 +4041,158 @@ describe("agent chat slice", () => {
     });
   });
 
+  it("binds the accepted turn id onto the optimistic user bubble without a reload", () => {
+    // Regression guard: the pencil that opens "edit this question" is gated on
+    // message.turnId, and the optimistic bubble is built before the gateway mints one. The
+    // feature used to work only after a reload re-hydrated the transcript.
+    let state = agentReducer(initialAgentState, { type: "agent/wsEvent", event: { event: "ready", chat_id: "chat-1" } });
+    state = agentReducer(state, {
+      type: "agent/userMessageQueued",
+      chatId: "chat-1",
+      content: "请只回复两个字：收到",
+      clientRequestId: "req-live-1"
+    });
+    expect(state.messages[0]?.turnId).toBeUndefined();
+
+    state = agentReducer(state, {
+      type: "agent/wsEvent",
+      event: {
+        event: "message_accepted",
+        chat_id: "chat-1",
+        client_request_id: "req-live-1",
+        turn_id: "turn-live-1"
+      }
+    });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ role: "user", turnId: "turn-live-1" });
+    expect(state.messagesByChatId["chat-1"]?.[0]?.turnId).toBe("turn-live-1");
+  });
+
+  it("keeps the bound turn id stable across a replayed or turn-id-less acceptance", () => {
+    let state = agentReducer(initialAgentState, { type: "agent/wsEvent", event: { event: "ready", chat_id: "chat-1" } });
+    state = agentReducer(state, {
+      type: "agent/userMessageQueued",
+      chatId: "chat-1",
+      content: "重放保护",
+      clientRequestId: "req-live-2"
+    });
+    state = agentReducer(state, {
+      type: "agent/wsEvent",
+      event: { event: "message_accepted", chat_id: "chat-1", client_request_id: "req-live-2", turn_id: "turn-live-2" }
+    });
+
+    // A second acceptance for the same request must not duplicate or rewrite anything.
+    const replayed = agentReducer(state, {
+      type: "agent/wsEvent",
+      event: { event: "message_accepted", chat_id: "chat-1", client_request_id: "req-live-2", turn_id: "turn-other" }
+    });
+    expect(replayed.messages).toHaveLength(1);
+    expect(replayed.messages[0]?.turnId).toBe("turn-live-2");
+
+    // An acceptance carrying no turn id is a no-op rather than a regression to undefined.
+    const withoutTurnId = agentReducer(state, {
+      type: "agent/wsEvent",
+      event: { event: "message_accepted", chat_id: "chat-1", client_request_id: "req-live-2" }
+    });
+    expect(withoutTurnId.messages[0]?.turnId).toBe("turn-live-2");
+  });
+
+  it("rebinds the turn id when the gateway accepts into a different chat id", () => {
+    // Regression guard for the standalone-compose path: the optimistic bubble is keyed by
+    // the chat the page had at send time, while `new_chat`/`attached` name the chat the
+    // gateway actually accepted into. Binding on the accepted id alone used to find no
+    // bucket and return early, so the pencil stayed hidden until a reload re-hydrated.
+    let state = agentReducer(initialAgentState, { type: "agent/newChatRequested" });
+    state = agentReducer(state, {
+      type: "agent/userMessageQueued",
+      chatId: "chat-draft",
+      content: "请只回复两个字：收到",
+      clientRequestId: "req-cross-1"
+    });
+    expect(state.messagesByChatId["chat-draft"]).toHaveLength(1);
+
+    state = agentReducer(state, {
+      type: "agent/wsEvent",
+      event: {
+        event: "message_accepted",
+        chat_id: "chat-gateway",
+        client_request_id: "req-cross-1",
+        turn_id: "turn-cross-1"
+      }
+    });
+
+    expect(state.messagesByChatId["chat-gateway"]).toHaveLength(1);
+    expect(state.messagesByChatId["chat-gateway"]?.[0]).toMatchObject({
+      role: "user",
+      turnId: "turn-cross-1"
+    });
+    // The pre-acceptance bucket is adopted, not duplicated alongside it.
+    expect(state.messagesByChatId["chat-draft"]).toBeUndefined();
+  });
+
+  it("still binds when the bubble only reached the current-chat mirror", () => {
+    let state = agentReducer(initialAgentState, { type: "agent/wsEvent", event: { event: "ready", chat_id: "chat-1" } });
+    state = agentReducer(state, {
+      type: "agent/userMessageQueued",
+      chatId: "chat-1",
+      content: "镜像兜底",
+      clientRequestId: "req-mirror-1"
+    });
+    // Simulate the bucket being dropped while the visible mirror survives.
+    state = { ...state, messagesByChatId: {} };
+
+    state = agentReducer(state, {
+      type: "agent/wsEvent",
+      event: { event: "message_accepted", chat_id: "chat-1", client_request_id: "req-mirror-1", turn_id: "turn-mirror-1" }
+    });
+
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.turnId).toBe("turn-mirror-1");
+    expect(state.messagesByChatId["chat-1"]?.[0]?.turnId).toBe("turn-mirror-1");
+  });
+
+  it("still records the model selection when the acceptance also carries a turn id", () => {
+    const state: AgentState = {
+      ...initialAgentState,
+      modelPresets: [
+        { name: "model-a", provider: "openai", model: "gpt-a", is_default: true, available: true },
+        { name: "model-b", provider: "anthropic", model: "claude-b", is_default: false, available: true }
+      ],
+      defaultModelPreset: "model-a",
+      pendingPresetByScope: { "chat-1": "model-b" },
+      committedModelSelectionByScope: { "chat-1": modelSelection("model-a") }
+    };
+    let state2 = agentReducer(state, {
+      type: "agent/userMessageQueued",
+      chatId: "chat-1",
+      content: "带 turn id 的模型确认",
+      clientRequestId: "req-live-3"
+    });
+    state2 = agentReducer(state2, {
+      type: "agent/modelSelectionRequestStarted",
+      scopeKey: "chat-1",
+      chatId: "chat-1",
+      clientRequestId: "req-live-3",
+      presetId: "model-b"
+    });
+    state2 = agentReducer(state2, {
+      type: "agent/wsEvent",
+      event: {
+        event: "message_accepted",
+        chat_id: "chat-1",
+        client_request_id: "req-live-3",
+        turn_id: "turn-live-3",
+        model_preset: "model-b",
+        model_selection: modelSelectionWire("model-b", "anthropic", "claude-b")
+      }
+    });
+
+    expect(state2.messages[0]?.turnId).toBe("turn-live-3");
+    expect(state2.pendingPresetByScope).not.toHaveProperty("chat-1");
+    expect(state2.committedModelSelectionByScope["chat-1"])
+      .toEqual(modelSelection("model-b", "anthropic", "claude-b"));
+  });
+
   it("releases an unconfirmed stop so the composer never stays locked", () => {
     let state = agentReducer(initialAgentState, { type: "agent/sessionsLoaded", sessions });
     state = agentReducer(state, { type: "agent/wsEvent", event: { event: "ready", chat_id: "chat-1" } });

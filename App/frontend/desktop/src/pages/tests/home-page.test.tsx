@@ -493,7 +493,7 @@ describe("HomePage", () => {
 
   it("passes the current UI language into agent websocket messages", () => {
     const source = readFileSync(homePageSourcePath, "utf8");
-    const sendBlock = source.slice(source.indexOf("async function sendMessage()"), source.indexOf("  /**\n   * 停止当前 Agent 回合"));
+    const sendBlock = source.slice(source.indexOf("function sendMessage("), source.indexOf("  /**\n   * 停止当前 Agent 回合"));
 
     expect(source).toContain("const { language, t } = useTranslation();");
     expect(sendBlock).toContain("language,");
@@ -501,7 +501,7 @@ describe("HomePage", () => {
 
   it("intercepts exact local slash commands before normal message submission", () => {
     const source = readFileSync(homePageSourcePath, "utf8");
-    const sendBlock = source.slice(source.indexOf("async function sendMessage()"), source.indexOf("  /**\n   * 停止当前 Agent 回合"));
+    const sendBlock = source.slice(source.indexOf("function sendMessage("), source.indexOf("  /**\n   * 停止当前 Agent 回合"));
     const localSlashBlock = source.slice(source.indexOf("function runExactLocalSlashCommand"), source.indexOf("  /**\n   * 停止当前 Agent 回合"));
 
     expect(sendBlock).toContain("if (runExactLocalSlashCommand(input))");
@@ -747,7 +747,7 @@ describe("HomePage", () => {
 
   it("prechecks platform quota only for the resolved account-sourced candidate", () => {
     const source = readFileSync(homePageSourcePath, "utf8");
-    const sendBlock = source.slice(source.indexOf("async function sendMessage()"), source.indexOf("async function removeQueuedMessage"));
+    const sendBlock = source.slice(source.indexOf("function sendMessage("), source.indexOf("async function removeQueuedMessage"));
 
     expect(sendBlock).toContain('resolvedConversationModel.candidate?.source === "platform"');
     expect(sendBlock).toContain("isAccountTokenQuotaExhausted(state.bootstrap)");
@@ -820,7 +820,7 @@ describe("HomePage", () => {
       source.indexOf("/**\n   * Updates the input draft")
     );
     const sendBlock = source.slice(
-      source.indexOf("async function sendMessage()"),
+      source.indexOf("function sendMessage("),
       source.indexOf("/**\n   * Stops the current Agent turn.")
     );
 
